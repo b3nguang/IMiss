@@ -17,6 +17,30 @@ function App() {
     loadRecordings();
   }, []);
 
+  // Poll playback progress when playing
+  useEffect(() => {
+    if (status !== "playing") {
+      return;
+    }
+
+    const interval = setInterval(async () => {
+      try {
+        const progress = await tauriApi.getPlaybackProgress();
+        setProgress(progress);
+        
+        // If progress is 100%, stop polling
+        if (progress >= 100) {
+          setStatus("idle");
+          setMessage("回放已完成");
+        }
+      } catch (error) {
+        console.error("Failed to get playback progress:", error);
+      }
+    }, 100); // Update every 100ms
+
+    return () => clearInterval(interval);
+  }, [status]);
+
   const loadRecordings = async () => {
     try {
       const list = await tauriApi.listRecordings();

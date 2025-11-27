@@ -1,14 +1,16 @@
+use crate::hooks;
 use crate::recording::{RecordingMeta, RecordingState};
 use crate::replay::ReplayState;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
+use std::time::Duration;
 use tauri::Manager;
 
-static RECORDING_STATE: LazyLock<Mutex<RecordingState>> = LazyLock::new(|| Mutex::new(RecordingState::new()));
+static RECORDING_STATE: LazyLock<Arc<Mutex<RecordingState>>> = LazyLock::new(|| Arc::new(Mutex::new(RecordingState::new())));
 
-static REPLAY_STATE: LazyLock<Mutex<ReplayState>> = LazyLock::new(|| Mutex::new(ReplayState::new()));
+static REPLAY_STATE: LazyLock<Arc<Mutex<ReplayState>>> = LazyLock::new(|| Arc::new(Mutex::new(ReplayState::new())));
 
 fn get_app_data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     // Try to use Tauri's path API first
@@ -38,15 +40,19 @@ pub fn start_recording() -> Result<(), String> {
         return Err("Recording is only supported on Windows".to_string());
     }
 
-    let mut state = RECORDING_STATE.lock().map_err(|e| e.to_string())?;
+    let state = RECORDING_STATE.clone();
+    let mut state_guard = state.lock().map_err(|e| e.to_string())?;
     
-    if state.is_recording {
+    if state_guard.is_recording {
         return Err("Already recording".to_string());
     }
 
-    state.start();
+    state_guard.start();
+    drop(state_guard);
     
-    // TODO: Install Windows hooks here
+    // Install Windows hooks with shared state
+    hooks::windows::install_hooks(state)?;
+    
     Ok(())
 }
 
@@ -57,19 +63,22 @@ pub fn stop_recording(app: tauri::AppHandle) -> Result<String, String> {
         return Err("Recording is only supported on Windows".to_string());
     }
 
-    let mut state = RECORDING_STATE.lock().map_err(|e| e.to_string())?;
+    let state = RECORDING_STATE.clone();
+    let mut state_guard = state.lock().map_err(|e| e.to_string())?;
     
-    if !state.is_recording {
+    if !state_guard.is_recording {
         return Err("Not currently recording".to_string());
     }
 
     // Get events before stopping
-    let events = state.events.clone();
-    let duration_ms = state.get_time_offset_ms().unwrap_or(0);
+    let events = state_guard.events.clone();
+    let duration_ms = state_guard.get_time_offset_ms().unwrap_or(0);
     
-    state.stop();
+    state_guard.stop();
+    drop(state_guard);
     
-    // TODO: Uninstall Windows hooks here
+    // Uninstall Windows hooks
+    hooks::windows::uninstall_hooks()?;
     
     // Save events to JSON file
     let app_data_dir = get_app_data_dir(&app)?;
@@ -210,10 +219,122 @@ pub fn play_recording(app: tauri::AppHandle, path: String, speed: f32) -> Result
         recordings_dir.join(&path)
     };
     
+    // Validate speed - limit to reasonable range to prevent system overload
+    if speed <= 0.0 || speed > 10.0 {
+        return Err("Speed must be between 0.1 and 10.0".to_string());
+    }
+    
     state.load_recording(&file_path)?;
+    
+    // Check if there are any events
+    if state.current_events.is_empty() {
+        return Err("Recording file contains no events".to_string());
+    }
+    
+    // Limit the number of events to prevent system overload
+    if state.current_events.len() > 100000 {
+        return Err(format!(
+            "Too many events ({}). Maximum allowed is 100000.",
+            state.current_events.len()
+        ));
+    }
+    
     state.start(speed);
     
-    // TODO: Start replay task here
+    // Start replay task in a separate thread (not async) since Windows API calls
+    // should be done in a blocking context
+    let replay_state = Arc::clone(&REPLAY_STATE);
+    let speed_multiplier = speed.max(0.1).min(10.0); // Ensure speed is between 0.1 and 10.0
+    
+    std::thread::spawn(move || {
+        let mut last_time = 0u64;
+        let mut last_mouse_move_time = 0u64;
+        let mut event_count = 0u64;
+        const MAX_EVENTS: u64 = 100000; // Safety limit
+        const MIN_MOUSE_MOVE_INTERVAL_MS: u64 = 10; // Minimum 10ms between mouse moves
+        
+        loop {
+            // Safety check: prevent infinite loops
+            event_count += 1;
+            if event_count > MAX_EVENTS {
+                eprintln!("Reached maximum event limit, stopping playback");
+                if let Ok(mut state) = replay_state.lock() {
+                    state.stop();
+                }
+                break;
+            }
+            
+            // Get event while holding lock briefly
+            let (event_opt, is_playing) = {
+                let mut state = match replay_state.lock() {
+                    Ok(s) => s,
+                    Err(_) => break,
+                };
+                
+                if !state.is_playing {
+                    break;
+                }
+                
+                let event = state.get_next_event();
+                let is_playing = state.is_playing;
+                (event, is_playing)
+            };
+            
+            if !is_playing {
+                break;
+            }
+            
+            if let Some(event) = event_opt {
+                // Skip mouse move events that are too frequent
+                if matches!(event.event_type, crate::recording::EventType::MouseMove) {
+                    let current_time = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64;
+                    
+                    if current_time.saturating_sub(last_mouse_move_time) < MIN_MOUSE_MOVE_INTERVAL_MS {
+                        // Skip this mouse move event to prevent system overload
+                        last_time = event.time_offset_ms;
+                        continue;
+                    }
+                    last_mouse_move_time = current_time;
+                }
+                
+                // Calculate delay based on time offset
+                let delay_ms = if last_time == 0 {
+                    // First event, add a small delay to let system stabilize
+                    50
+                } else {
+                    let diff = event.time_offset_ms.saturating_sub(last_time);
+                    // Use saturating cast to prevent overflow, ensure minimum delay
+                    let calculated = (diff as f32 / speed_multiplier) as u64;
+                    calculated.max(1).min(60000) // Between 1ms and 60 seconds
+                };
+                
+                if delay_ms > 0 {
+                    std::thread::sleep(Duration::from_millis(delay_ms));
+                }
+                
+                // Execute the event with error handling
+                match crate::replay::ReplayState::execute_event(&event) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        eprintln!("Failed to execute event: {}", e);
+                        // Continue with next event instead of crashing
+                    }
+                }
+                
+                last_time = event.time_offset_ms;
+            } else {
+                // No more events, stop playback
+                if let Ok(mut state) = replay_state.lock() {
+                    state.stop();
+                }
+                break;
+            }
+        }
+    });
+    
     Ok(())
 }
 
@@ -226,8 +347,12 @@ pub fn stop_playback() -> Result<(), String> {
     }
 
     state.stop();
-    
-    // TODO: Stop replay task here
     Ok(())
+}
+
+#[tauri::command]
+pub fn get_playback_progress() -> Result<f32, String> {
+    let state = REPLAY_STATE.lock().map_err(|e| e.to_string())?;
+    Ok(state.get_progress())
 }
 

@@ -3,6 +3,7 @@
 
 mod commands;
 mod error;
+mod hooks;
 mod hotkey;
 mod recording;
 mod replay;
@@ -18,6 +19,7 @@ fn main() {
             list_recordings,
             play_recording,
             stop_playback,
+            get_playback_progress,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

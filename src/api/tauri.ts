@@ -21,5 +21,9 @@ export const tauriApi = {
   async stopPlayback(): Promise<void> {
     return invoke("stop_playback");
   },
+
+  async getPlaybackProgress(): Promise<number> {
+    return invoke("get_playback_progress");
+  },
 };
 

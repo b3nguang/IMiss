@@ -1,4 +1,4 @@
-use crate::recording::RecordedEvent;
+use crate::recording::{EventType, MouseButton, RecordedEvent};
 use serde_json;
 use std::fs;
 use std::path::Path;
@@ -56,6 +56,169 @@ impl ReplayState {
             return 0.0;
         }
         (self.current_index as f32 / self.current_events.len() as f32) * 100.0
+    }
+
+    pub fn get_next_event(&mut self) -> Option<RecordedEvent> {
+        if self.current_index < self.current_events.len() {
+            let event = self.current_events[self.current_index].clone();
+            self.current_index += 1;
+            Some(event)
+        } else {
+            None
+        }
+    }
+
+    pub fn execute_event(event: &RecordedEvent) -> Result<(), String> {
+        #[cfg(target_os = "windows")]
+        {
+            use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+                SendInput, INPUT, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_KEYUP,
+                MOUSEINPUT, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN,
+                MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
+                MOUSEEVENTF_WHEEL,
+            };
+            use windows_sys::Win32::UI::WindowsAndMessaging::SetCursorPos;
+
+            unsafe {
+                match &event.event_type {
+                    EventType::MouseMove => {
+                        if let (Some(x), Some(y)) = (event.x, event.y) {
+                            // Validate coordinates are within screen bounds
+                            if x < -32768 || x > 32767 || y < -32768 || y > 32767 {
+                                return Err(format!("Invalid mouse coordinates: ({}, {})", x, y));
+                            }
+                            if SetCursorPos(x, y) == 0 {
+                                return Err("Failed to move cursor".to_string());
+                            }
+                        }
+                    }
+                    EventType::MouseDown { button } => {
+                        let flags = match button {
+                            MouseButton::Left => MOUSEEVENTF_LEFTDOWN,
+                            MouseButton::Right => MOUSEEVENTF_RIGHTDOWN,
+                            MouseButton::Middle => MOUSEEVENTF_MIDDLEDOWN,
+                        };
+
+                        let mut input = INPUT {
+                            r#type: INPUT_MOUSE,
+                            Anonymous: windows_sys::Win32::UI::Input::KeyboardAndMouse::INPUT_0 {
+                                mi: MOUSEINPUT {
+                                    dx: 0,
+                                    dy: 0,
+                                    mouseData: 0,
+                                    dwFlags: flags,
+                                    time: 0,
+                                    dwExtraInfo: 0,
+                                },
+                            },
+                        };
+
+                        if SendInput(1, &mut input, std::mem::size_of::<INPUT>() as i32) == 0 {
+                            return Err("Failed to send mouse down event".to_string());
+                        }
+                    }
+                    EventType::MouseUp { button } => {
+                        let flags = match button {
+                            MouseButton::Left => MOUSEEVENTF_LEFTUP,
+                            MouseButton::Right => MOUSEEVENTF_RIGHTUP,
+                            MouseButton::Middle => MOUSEEVENTF_MIDDLEUP,
+                        };
+
+                        let mut input = INPUT {
+                            r#type: INPUT_MOUSE,
+                            Anonymous: windows_sys::Win32::UI::Input::KeyboardAndMouse::INPUT_0 {
+                                mi: MOUSEINPUT {
+                                    dx: 0,
+                                    dy: 0,
+                                    mouseData: 0,
+                                    dwFlags: flags,
+                                    time: 0,
+                                    dwExtraInfo: 0,
+                                },
+                            },
+                        };
+
+                        if SendInput(1, &mut input, std::mem::size_of::<INPUT>() as i32) == 0 {
+                            return Err("Failed to send mouse up event".to_string());
+                        }
+                    }
+                    EventType::MouseWheel { delta } => {
+                        let mut input = INPUT {
+                            r#type: INPUT_MOUSE,
+                            Anonymous: windows_sys::Win32::UI::Input::KeyboardAndMouse::INPUT_0 {
+                                mi: MOUSEINPUT {
+                                    dx: 0,
+                                    dy: 0,
+                                    mouseData: (*delta as u32) << 16,
+                                    dwFlags: MOUSEEVENTF_WHEEL,
+                                    time: 0,
+                                    dwExtraInfo: 0,
+                                },
+                            },
+                        };
+
+                        if SendInput(1, &mut input, std::mem::size_of::<INPUT>() as i32) == 0 {
+                            return Err("Failed to send mouse wheel event".to_string());
+                        }
+                    }
+                    EventType::KeyDown { vk_code } => {
+                        // Validate virtual key code
+                        if *vk_code > 255 {
+                            return Err(format!("Invalid virtual key code: {}", vk_code));
+                        }
+                        
+                        let mut input = INPUT {
+                            r#type: INPUT_KEYBOARD,
+                            Anonymous: windows_sys::Win32::UI::Input::KeyboardAndMouse::INPUT_0 {
+                                ki: KEYBDINPUT {
+                                    wVk: *vk_code as u16,
+                                    wScan: 0,
+                                    dwFlags: 0,
+                                    time: 0,
+                                    dwExtraInfo: 0,
+                                },
+                            },
+                        };
+
+                        let result = SendInput(1, &mut input, std::mem::size_of::<INPUT>() as i32);
+                        if result == 0 {
+                            return Err(format!("Failed to send key down event for VK code: {}", vk_code));
+                        }
+                    }
+                    EventType::KeyUp { vk_code } => {
+                        // Validate virtual key code
+                        if *vk_code > 255 {
+                            return Err(format!("Invalid virtual key code: {}", vk_code));
+                        }
+                        
+                        let mut input = INPUT {
+                            r#type: INPUT_KEYBOARD,
+                            Anonymous: windows_sys::Win32::UI::Input::KeyboardAndMouse::INPUT_0 {
+                                ki: KEYBDINPUT {
+                                    wVk: *vk_code as u16,
+                                    wScan: 0,
+                                    dwFlags: KEYEVENTF_KEYUP,
+                                    time: 0,
+                                    dwExtraInfo: 0,
+                                },
+                            },
+                        };
+
+                        let result = SendInput(1, &mut input, std::mem::size_of::<INPUT>() as i32);
+                        if result == 0 {
+                            return Err(format!("Failed to send key up event for VK code: {}", vk_code));
+                        }
+                    }
+                }
+            }
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            return Err("Replay is only supported on Windows".to_string());
+        }
+
+        Ok(())
     }
 }
 
