@@ -1,3 +1,4 @@
+use crate::app_search;
 use crate::hooks;
 use crate::recording::{RecordingMeta, RecordingState};
 use crate::replay::ReplayState;
@@ -11,6 +12,8 @@ use tauri::Manager;
 static RECORDING_STATE: LazyLock<Arc<Mutex<RecordingState>>> = LazyLock::new(|| Arc::new(Mutex::new(RecordingState::new())));
 
 static REPLAY_STATE: LazyLock<Arc<Mutex<ReplayState>>> = LazyLock::new(|| Arc::new(Mutex::new(ReplayState::new())));
+
+static APP_CACHE: LazyLock<Arc<Mutex<Option<Vec<app_search::AppInfo>>>>> = LazyLock::new(|| Arc::new(Mutex::new(None)));
 
 fn get_app_data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     // Try to use Tauri's path API first
@@ -427,5 +430,56 @@ pub fn get_playback_status() -> Result<bool, String> {
 pub fn get_playback_progress() -> Result<f32, String> {
     let state = REPLAY_STATE.lock().map_err(|e| e.to_string())?;
     Ok(state.get_progress())
+}
+
+#[tauri::command]
+pub fn scan_applications() -> Result<Vec<app_search::AppInfo>, String> {
+    let cache = APP_CACHE.clone();
+    let mut cache_guard = cache.lock().map_err(|e| e.to_string())?;
+    
+    // Return cached apps if available
+    if let Some(ref apps) = *cache_guard {
+        return Ok(apps.clone());
+    }
+    
+    // Scan applications
+    let apps = app_search::windows::scan_start_menu()?;
+    
+    // Cache the results
+    *cache_guard = Some(apps.clone());
+    
+    Ok(apps)
+}
+
+#[tauri::command]
+pub fn search_applications(query: String) -> Result<Vec<app_search::AppInfo>, String> {
+    let cache = APP_CACHE.clone();
+    let cache_guard = cache.lock().map_err(|e| e.to_string())?;
+    
+    let apps = cache_guard.as_ref()
+        .ok_or_else(|| "Applications not scanned yet. Call scan_applications first.".to_string())?;
+    
+    let results = app_search::windows::search_apps(&query, apps);
+    Ok(results)
+}
+
+#[tauri::command]
+pub fn launch_application(app: app_search::AppInfo) -> Result<(), String> {
+    app_search::windows::launch_app(&app)
+}
+
+#[tauri::command]
+pub fn toggle_launcher(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("launcher") {
+        if window.is_visible().unwrap_or(false) {
+            let _ = window.hide();
+        } else {
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    } else {
+        return Err("Launcher window not found".to_string());
+    }
+    Ok(())
 }
 

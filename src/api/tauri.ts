@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { RecordingMeta } from "../types";
+import type { RecordingMeta, AppInfo } from "../types";
 
 export const tauriApi = {
   async getRecordingStatus(): Promise<boolean> {
@@ -36,6 +36,22 @@ export const tauriApi = {
 
   async getPlaybackProgress(): Promise<number> {
     return invoke("get_playback_progress");
+  },
+
+  async scanApplications(): Promise<AppInfo[]> {
+    return invoke("scan_applications");
+  },
+
+  async searchApplications(query: string): Promise<AppInfo[]> {
+    return invoke("search_applications", { query });
+  },
+
+  async launchApplication(app: AppInfo): Promise<void> {
+    return invoke("launch_application", { app });
+  },
+
+  async toggleLauncher(): Promise<void> {
+    return invoke("toggle_launcher");
   },
 };
 

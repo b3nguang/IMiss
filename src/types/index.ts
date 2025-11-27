@@ -30,3 +30,10 @@ export interface RecordingMeta {
 
 export type AppStatus = "idle" | "recording" | "playing";
 
+export interface AppInfo {
+  name: string;
+  path: string;
+  icon?: string;
+  description?: string;
+}
+

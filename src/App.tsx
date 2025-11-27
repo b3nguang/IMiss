@@ -14,9 +14,13 @@ function App() {
   const [selectedRecordingPath, setSelectedRecordingPath] = useState<string>("");
 
   useEffect(() => {
-    loadRecordings();
-    // Sync recording status on app start
-    syncRecordingStatus();
+    // Delay to avoid blocking initial render
+    const timer = setTimeout(() => {
+      loadRecordings();
+      syncRecordingStatus();
+    }, 100);
+    
+    return () => clearTimeout(timer);
   }, []);
 
   const syncRecordingStatus = async () => {
