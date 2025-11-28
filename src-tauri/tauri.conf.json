@@ -13,8 +13,8 @@
       {
         "label": "launcher",
         "title": "ReFast Launcher",
-        "width": 700,
-        "height": 600,
+        "width": 672,
+        "height": 80,
         "resizable": false,
         "fullscreen": false,
         "transparent": true,
@@ -38,7 +38,10 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": null,
+      "capabilities": [
+        "main"
+      ]
     }
   },
   "bundle": {

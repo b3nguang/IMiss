@@ -3,7 +3,15 @@ import "./styles.css";
 
 function LauncherApp() {
   return (
-    <div className="h-screen w-screen bg-transparent">
+    <div 
+      className="h-screen w-screen" 
+      style={{ 
+        backgroundColor: 'transparent', 
+        margin: 0, 
+        padding: 0,
+        overflow: 'hidden'
+      }}
+    >
       <LauncherWindow />
     </div>
   );

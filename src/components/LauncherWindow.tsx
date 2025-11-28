@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { tauriApi } from "../api/tauri";
 import type { AppInfo, FileHistoryItem } from "../types";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { LogicalSize } from "@tauri-apps/api/window";
 
 type SearchResult = {
   type: "app" | "file";
@@ -23,12 +24,28 @@ export function LauncherWindow() {
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  // Focus input when window becomes visible
+  // Focus input when window becomes visible and adjust window size
   useEffect(() => {
     const window = getCurrentWindow();
     
     // Ensure window has no decorations
     window.setDecorations(false).catch(console.error);
+    
+    // Set initial window size to match white container
+    const setWindowSize = () => {
+      const whiteContainer = document.querySelector('.bg-white');
+      if (whiteContainer) {
+        const containerRect = whiteContainer.getBoundingClientRect();
+        const containerWidth = containerRect.width;
+        const containerHeight = containerRect.height;
+        // Add some padding for better appearance
+        const targetHeight = Math.max(containerHeight + 40, 80);
+        window.setSize(new LogicalSize(containerWidth, targetHeight)).catch(console.error);
+      }
+    };
+    
+    // Set initial size after a short delay to ensure DOM is ready
+    setTimeout(setWindowSize, 100);
     
     // Global keyboard listener for Escape key
     const handleGlobalKeyDown = async (e: KeyboardEvent) => {
@@ -48,22 +65,55 @@ export function LauncherWindow() {
     // Use document with capture phase to catch Esc key early
     document.addEventListener("keydown", handleGlobalKeyDown, true);
     
-    const unlisten = window.onFocusChanged(({ payload: focused }) => {
+    // Focus input when window gains focus
+    const unlistenFocus = window.onFocusChanged(({ payload: focused }) => {
       if (focused && inputRef.current) {
         setTimeout(() => {
           inputRef.current?.focus();
+          // Only select text if input is empty
+          if (inputRef.current && !inputRef.current.value) {
+            inputRef.current.select();
+          }
         }, 100);
       }
     });
 
+    // Focus input when window becomes visible (check periodically, but don't select text)
+    let focusInterval: ReturnType<typeof setInterval> | null = null;
+    let lastVisibilityState = false;
+    const checkVisibilityAndFocus = async () => {
+      try {
+        const isVisible = await window.isVisible();
+        if (isVisible && !lastVisibilityState && inputRef.current) {
+          // Only focus when window becomes visible (transition from hidden to visible)
+          inputRef.current.focus();
+          // Only select text if input is empty
+          if (!inputRef.current.value) {
+            inputRef.current.select();
+          }
+        }
+        lastVisibilityState = isVisible;
+      } catch (error) {
+        // Ignore errors
+      }
+    };
+    focusInterval = setInterval(checkVisibilityAndFocus, 300);
+
     // Also focus on mount
-    setTimeout(() => {
-      inputRef.current?.focus();
-    }, 100);
+    const focusInput = () => {
+      if (inputRef.current) {
+        inputRef.current.focus();
+        inputRef.current.select();
+      }
+    };
+    setTimeout(focusInput, 100);
 
     return () => {
       document.removeEventListener("keydown", handleGlobalKeyDown, true);
-      unlisten.then((fn) => fn());
+      if (focusInterval) {
+        clearInterval(focusInterval);
+      }
+      unlistenFocus.then((fn: () => void) => fn());
     };
   }, []);
 
@@ -99,9 +149,61 @@ export function LauncherWindow() {
     ];
     setResults(combinedResults.slice(0, 10)); // Limit to 10 results
     setSelectedIndex(0);
+    
+    // Adjust window size based on content
+    const adjustWindowSize = () => {
+      const window = getCurrentWindow();
+      const whiteContainer = document.querySelector('.bg-white');
+      if (whiteContainer) {
+        // Use double requestAnimationFrame to ensure DOM is fully updated
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            const containerRect = whiteContainer.getBoundingClientRect();
+            const containerWidth = containerRect.width;
+            const containerHeight = containerRect.height;
+            // Add some padding for better appearance
+            const targetHeight = Math.max(containerHeight + 40, 80);
+            console.log('Adjusting window size:', { containerWidth, containerHeight, targetHeight });
+            window.setSize(new LogicalSize(containerWidth, targetHeight)).catch(console.error);
+          });
+        });
+      }
+    };
+    
+    // Adjust size after results update - use longer delay to ensure DOM is ready
+    setTimeout(adjustWindowSize, 200);
   }, [filteredApps, filteredFiles]);
 
-  // Scroll selected item into view
+  // Adjust window size when results actually change
+  useEffect(() => {
+    const adjustWindowSize = () => {
+      const window = getCurrentWindow();
+      const whiteContainer = document.querySelector('.bg-white');
+      if (whiteContainer) {
+        // Use double requestAnimationFrame to ensure DOM is fully updated
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            const containerRect = whiteContainer.getBoundingClientRect();
+            const containerWidth = containerRect.width;
+            const containerHeight = containerRect.height;
+            const targetHeight = Math.max(containerHeight + 40, 80);
+            console.log('Adjusting window size (results state changed):', { 
+              resultsCount: results.length,
+              containerWidth, 
+              containerHeight, 
+              targetHeight 
+            });
+            window.setSize(new LogicalSize(containerWidth, targetHeight)).catch(console.error);
+          });
+        });
+      }
+    };
+    
+    // Adjust size after results state updates
+    setTimeout(adjustWindowSize, 250);
+  }, [results]);
+
+  // Scroll selected item into view and adjust window size
   useEffect(() => {
     if (listRef.current && selectedIndex >= 0 && results.length > 0) {
       const items = listRef.current.children;
@@ -112,7 +214,29 @@ export function LauncherWindow() {
         });
       }
     }
-  }, [selectedIndex, results.length]);
+    
+    // Adjust window size when results change
+    const adjustWindowSize = () => {
+      const window = getCurrentWindow();
+      const whiteContainer = document.querySelector('.bg-white');
+      if (whiteContainer) {
+        // Use double requestAnimationFrame to ensure DOM is fully updated
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            const containerRect = whiteContainer.getBoundingClientRect();
+            const containerWidth = containerRect.width;
+            const containerHeight = containerRect.height;
+            const targetHeight = Math.max(containerHeight + 40, 80);
+            console.log('Adjusting window size (results changed):', { containerWidth, containerHeight, targetHeight });
+            window.setSize(new LogicalSize(containerWidth, targetHeight)).catch(console.error);
+          });
+        });
+      }
+    };
+    
+    // Adjust size after scroll animation
+    setTimeout(adjustWindowSize, 200);
+  }, [selectedIndex, results.length, results]);
 
   const loadApplications = async () => {
     try {
@@ -351,7 +475,14 @@ export function LauncherWindow() {
 
   return (
     <div 
-      className="flex flex-col h-full items-center justify-center bg-transparent"
+      className="flex flex-col w-full items-center justify-start pt-4"
+      style={{ 
+        backgroundColor: 'transparent',
+        margin: 0,
+        padding: 0,
+        width: '100%',
+        minHeight: '100%'
+      }}
       tabIndex={-1}
       onKeyDown={async (e) => {
         if (e.key === "Escape" || e.keyCode === 27) {
@@ -368,8 +499,8 @@ export function LauncherWindow() {
       }}
     >
       {/* Main Search Container - utools style */}
-      <div className="w-full max-w-2xl mx-auto px-4">
-        <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
+      <div className="w-full flex justify-center">
+        <div className="bg-white w-full max-w-2xl overflow-hidden" style={{ height: 'auto' }}>
           {/* Search Box */}
           <div className="px-6 py-4 border-b border-gray-100">
             <div className="flex items-center gap-3">
@@ -396,6 +527,14 @@ export function LauncherWindow() {
                 placeholder="输入应用名称或粘贴文件路径..."
                 className="flex-1 text-lg border-none outline-none bg-transparent placeholder-gray-400 text-gray-700"
                 autoFocus
+                onFocus={(e) => {
+                  // Ensure input is focused, but don't select text if user is typing
+                  e.target.focus();
+                }}
+                onMouseDown={(e) => {
+                  // Prevent losing focus when clicking on input
+                  e.stopPropagation();
+                }}
               />
             </div>
           </div>
