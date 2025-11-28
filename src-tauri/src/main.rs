@@ -4,6 +4,7 @@
 mod app_search;
 mod commands;
 mod error;
+mod file_history;
 mod hooks;
 mod hotkey;
 mod hotkey_handler;
@@ -11,6 +12,7 @@ mod recording;
 mod replay;
 
 use commands::*;
+use crate::commands::get_app_data_dir;
 use tauri::{Manager, menu::{Menu, MenuItem}};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
@@ -148,6 +150,10 @@ fn main() {
                 }
             }
 
+            // Load file history on startup
+            let app_data_dir = get_app_data_dir(app.handle())?;
+            file_history::load_history(&app_data_dir).ok(); // Ignore errors if file doesn't exist
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -165,6 +171,9 @@ fn main() {
             launch_application,
             toggle_launcher,
             hide_launcher,
+            add_file_to_history,
+            search_file_history,
+            launch_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

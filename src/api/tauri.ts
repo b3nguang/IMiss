@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { RecordingMeta, AppInfo } from "../types";
+import type { RecordingMeta, AppInfo, FileHistoryItem } from "../types";
 
 export const tauriApi = {
   async getRecordingStatus(): Promise<boolean> {
@@ -56,6 +56,18 @@ export const tauriApi = {
 
   async hideLauncher(): Promise<void> {
     return invoke("hide_launcher");
+  },
+
+  async addFileToHistory(path: string): Promise<void> {
+    return invoke("add_file_to_history", { path });
+  },
+
+  async searchFileHistory(query: string): Promise<FileHistoryItem[]> {
+    return invoke("search_file_history", { query });
+  },
+
+  async launchFile(path: string): Promise<void> {
+    return invoke("launch_file", { path });
   },
 };
 

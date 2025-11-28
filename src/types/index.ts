@@ -37,3 +37,10 @@ export interface AppInfo {
   description?: string;
 }
 
+export interface FileHistoryItem {
+  path: string;
+  name: string;
+  last_used: number;
+  use_count: number;
+}
+

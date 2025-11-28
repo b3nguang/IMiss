@@ -1,12 +1,23 @@
 import { useState, useEffect, useRef } from "react";
 import { tauriApi } from "../api/tauri";
-import type { AppInfo } from "../types";
+import type { AppInfo, FileHistoryItem } from "../types";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+
+type SearchResult = {
+  type: "app" | "file";
+  app?: AppInfo;
+  file?: FileHistoryItem;
+  displayName: string;
+  path: string;
+};
 
 export function LauncherWindow() {
   const [query, setQuery] = useState("");
   const [apps, setApps] = useState<AppInfo[]>([]);
   const [filteredApps, setFilteredApps] = useState<AppInfo[]>([]);
+  const [fileHistory, setFileHistory] = useState<FileHistoryItem[]>([]);
+  const [filteredFiles, setFilteredFiles] = useState<FileHistoryItem[]>([]);
+  const [results, setResults] = useState<SearchResult[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -56,20 +67,43 @@ export function LauncherWindow() {
     };
   }, []);
 
-  // Search applications when query changes
+  // Search applications and file history when query changes
   useEffect(() => {
     if (query.trim() === "") {
       setFilteredApps([]);
+      setFilteredFiles([]);
+      setResults([]);
       setSelectedIndex(0);
     } else {
       searchApplications(query);
+      searchFileHistory(query);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
 
+  // Combine apps and files into results when they change
+  useEffect(() => {
+    const combinedResults: SearchResult[] = [
+      ...filteredApps.map((app) => ({
+        type: "app" as const,
+        app,
+        displayName: app.name,
+        path: app.path,
+      })),
+      ...filteredFiles.map((file) => ({
+        type: "file" as const,
+        file,
+        displayName: file.name,
+        path: file.path,
+      })),
+    ];
+    setResults(combinedResults.slice(0, 10)); // Limit to 10 results
+    setSelectedIndex(0);
+  }, [filteredApps, filteredFiles]);
+
   // Scroll selected item into view
   useEffect(() => {
-    if (listRef.current && selectedIndex >= 0 && filteredApps.length > 0) {
+    if (listRef.current && selectedIndex >= 0 && results.length > 0) {
       const items = listRef.current.children;
       if (items[selectedIndex]) {
         items[selectedIndex].scrollIntoView({
@@ -78,7 +112,7 @@ export function LauncherWindow() {
         });
       }
     }
-  }, [selectedIndex, filteredApps.length]);
+  }, [selectedIndex, results.length]);
 
   const loadApplications = async () => {
     try {
@@ -115,22 +149,54 @@ export function LauncherWindow() {
       }
       
       const results = await tauriApi.searchApplications(searchQuery);
-      setFilteredApps(results.slice(0, 10)); // Limit to 10 results
-      setSelectedIndex(0);
+      setFilteredApps(results);
     } catch (error) {
       console.error("Failed to search applications:", error);
     }
   };
 
-  const handleLaunch = async (app: AppInfo) => {
+  const searchFileHistory = async (searchQuery: string) => {
     try {
-      await tauriApi.launchApplication(app);
+      const results = await tauriApi.searchFileHistory(searchQuery);
+      setFilteredFiles(results);
+    } catch (error) {
+      console.error("Failed to search file history:", error);
+    }
+  };
+
+  const handleLaunch = async (result: SearchResult) => {
+    try {
+      if (result.type === "app" && result.app) {
+        await tauriApi.launchApplication(result.app);
+      } else if (result.type === "file" && result.file) {
+        await tauriApi.launchFile(result.file.path);
+      }
       // Hide launcher window after launch
       await tauriApi.hideLauncher();
       setQuery("");
       setSelectedIndex(0);
     } catch (error) {
-      console.error("Failed to launch application:", error);
+      console.error("Failed to launch:", error);
+    }
+  };
+
+  const handlePaste = async (e: React.ClipboardEvent) => {
+    const pastedText = e.clipboardData.getData("text");
+    
+    // Check if pasted text looks like a file path
+    if (pastedText && (pastedText.includes("\\") || pastedText.includes("/") || pastedText.endsWith(".exe") || pastedText.match(/^[A-Za-z]:/))) {
+      e.preventDefault();
+      
+      try {
+        // Add to history
+        await tauriApi.addFileToHistory(pastedText);
+        // Set query to trigger search
+        setQuery(pastedText);
+      } catch (error) {
+        console.error("Failed to add file to history:", error);
+        // Still set the query even if adding to history fails
+        setQuery(pastedText);
+      }
     }
   };
 
@@ -151,7 +217,7 @@ export function LauncherWindow() {
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setSelectedIndex((prev) =>
-        prev < filteredApps.length - 1 ? prev + 1 : prev
+        prev < results.length - 1 ? prev + 1 : prev
       );
       return;
     }
@@ -164,8 +230,8 @@ export function LauncherWindow() {
 
     if (e.key === "Enter") {
       e.preventDefault();
-      if (filteredApps[selectedIndex]) {
-        await handleLaunch(filteredApps[selectedIndex]);
+      if (results[selectedIndex]) {
+        await handleLaunch(results[selectedIndex]);
       }
       return;
     }
@@ -214,7 +280,8 @@ export function LauncherWindow() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="输入应用名称或命令..."
+                onPaste={handlePaste}
+                placeholder="输入应用名称或粘贴文件路径..."
                 className="flex-1 text-lg border-none outline-none bg-transparent placeholder-gray-400 text-gray-700"
                 autoFocus
               />
@@ -222,15 +289,15 @@ export function LauncherWindow() {
           </div>
 
           {/* Results List */}
-          {filteredApps.length > 0 && (
+          {results.length > 0 && (
             <div
               ref={listRef}
               className="max-h-96 overflow-y-auto"
             >
-              {filteredApps.map((app, index) => (
+              {results.map((result, index) => (
                 <div
-                  key={`${app.path}-${index}`}
-                  onClick={() => handleLaunch(app)}
+                  key={`${result.type}-${result.path}-${index}`}
+                  onClick={() => handleLaunch(result)}
                   className={`px-6 py-3 cursor-pointer transition-all ${
                     index === selectedIndex
                       ? "bg-blue-500 text-white"
@@ -241,31 +308,58 @@ export function LauncherWindow() {
                     <div className={`w-8 h-8 rounded flex items-center justify-center flex-shrink-0 ${
                       index === selectedIndex ? "bg-blue-400" : "bg-gray-200"
                     }`}>
-                      <svg
-                        className={`w-5 h-5 ${
-                          index === selectedIndex ? "text-white" : "text-gray-500"
-                        }`}
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                        />
-                      </svg>
+                      {result.type === "file" ? (
+                        <svg
+                          className={`w-5 h-5 ${
+                            index === selectedIndex ? "text-white" : "text-gray-500"
+                          }`}
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                          />
+                        </svg>
+                      ) : (
+                        <svg
+                          className={`w-5 h-5 ${
+                            index === selectedIndex ? "text-white" : "text-gray-500"
+                          }`}
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                          />
+                        </svg>
+                      )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="font-medium truncate">{app.name}</div>
-                      {app.path && (
+                      <div className="font-medium truncate">{result.displayName}</div>
+                      {result.path && (
                         <div
                           className={`text-sm truncate ${
                             index === selectedIndex ? "text-blue-100" : "text-gray-500"
                           }`}
                         >
-                          {app.path}
+                          {result.path}
+                        </div>
+                      )}
+                      {result.type === "file" && result.file && (
+                        <div
+                          className={`text-xs ${
+                            index === selectedIndex ? "text-blue-200" : "text-gray-400"
+                          }`}
+                        >
+                          使用 {result.file.use_count} 次
                         </div>
                       )}
                     </div>
@@ -283,22 +377,22 @@ export function LauncherWindow() {
             </div>
           )}
 
-          {!isLoading && filteredApps.length === 0 && query && (
+          {!isLoading && results.length === 0 && query && (
             <div className="px-6 py-8 text-center text-gray-500">
-              未找到匹配的应用
+              未找到匹配的应用或文件
             </div>
           )}
 
-          {!isLoading && filteredApps.length === 0 && !query && (
+          {!isLoading && results.length === 0 && !query && (
             <div className="px-6 py-8 text-center text-gray-400 text-sm">
-              输入关键词搜索应用
+              输入关键词搜索应用，或粘贴文件路径
             </div>
           )}
 
           {/* Footer */}
-          {filteredApps.length > 0 && (
+          {results.length > 0 && (
             <div className="px-6 py-2 border-t border-gray-100 text-xs text-gray-400 flex justify-between bg-gray-50/50">
-              <span>{filteredApps.length} 个结果</span>
+              <span>{results.length} 个结果</span>
               <span>↑↓ 选择 · Enter 打开 · Esc 关闭</span>
             </div>
           )}

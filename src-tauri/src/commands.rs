@@ -1,4 +1,5 @@
 use crate::app_search;
+use crate::file_history;
 use crate::hooks;
 use crate::recording::{RecordingMeta, RecordingState};
 use crate::replay::ReplayState;
@@ -15,7 +16,7 @@ static REPLAY_STATE: LazyLock<Arc<Mutex<ReplayState>>> = LazyLock::new(|| Arc::n
 
 static APP_CACHE: LazyLock<Arc<Mutex<Option<Vec<app_search::AppInfo>>>>> = LazyLock::new(|| Arc::new(Mutex::new(None)));
 
-fn get_app_data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+pub fn get_app_data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     // Try to use Tauri's path API first
     if let Ok(path) = app.path().app_data_dir() {
         return Ok(path);
@@ -489,5 +490,33 @@ pub fn hide_launcher(app: tauri::AppHandle) -> Result<(), String> {
         let _ = window.hide();
     }
     Ok(())
+}
+
+#[tauri::command]
+pub fn add_file_to_history(path: String, app: tauri::AppHandle) -> Result<(), String> {
+    let app_data_dir = get_app_data_dir(&app)?;
+    
+    // Load history first to ensure it's up to date
+    file_history::load_history(&app_data_dir).ok(); // Ignore errors if file doesn't exist
+    
+    file_history::add_file_path(path, &app_data_dir)?;
+    
+    Ok(())
+}
+
+#[tauri::command]
+pub fn search_file_history(query: String) -> Result<Vec<file_history::FileHistoryItem>, String> {
+    Ok(file_history::search_file_history(&query))
+}
+
+#[tauri::command]
+pub fn launch_file(path: String, app: tauri::AppHandle) -> Result<(), String> {
+    // Add to history when launched
+    let app_data_dir = get_app_data_dir(&app)?;
+    file_history::load_history(&app_data_dir).ok(); // Ignore errors
+    file_history::add_file_path(path.clone(), &app_data_dir).ok(); // Ignore errors
+    
+    // Launch the file
+    file_history::launch_file(&path)
 }
 
