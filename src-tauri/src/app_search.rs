@@ -15,6 +15,7 @@ pub struct AppInfo {
 pub mod windows {
     use super::*;
     use std::env;
+    use pinyin::ToPinyin;
 
     // Cache file name
     pub fn get_cache_file_path(app_data_dir: &Path) -> PathBuf {
@@ -299,12 +300,45 @@ pub mod windows {
         })
     }
 
+    // Convert Chinese characters to pinyin (full pinyin)
+    fn to_pinyin(text: &str) -> String {
+        text.to_pinyin()
+            .filter_map(|p| p.map(|p| p.plain()))
+            .collect::<Vec<_>>()
+            .join("")
+    }
+
+    // Convert Chinese characters to pinyin initials (first letter of each pinyin)
+    fn to_pinyin_initials(text: &str) -> String {
+        text.to_pinyin()
+            .filter_map(|p| p.map(|p| p.plain().chars().next()))
+            .flatten()
+            .collect::<String>()
+    }
+
+    // Check if text contains Chinese characters
+    fn contains_chinese(text: &str) -> bool {
+        text.chars().any(|c| {
+            matches!(c as u32,
+                0x4E00..=0x9FFF |  // CJK Unified Ideographs
+                0x3400..=0x4DBF |  // CJK Extension A
+                0x20000..=0x2A6DF | // CJK Extension B
+                0x2A700..=0x2B73F | // CJK Extension C
+                0x2B740..=0x2B81F | // CJK Extension D
+                0xF900..=0xFAFF |  // CJK Compatibility Ideographs
+                0x2F800..=0x2FA1F   // CJK Compatibility Ideographs Supplement
+            )
+        })
+    }
+
     pub fn search_apps(query: &str, apps: &[AppInfo]) -> Vec<AppInfo> {
         if query.is_empty() {
             return apps.to_vec();
         }
 
         let query_lower = query.to_lowercase();
+        let query_is_pinyin = !contains_chinese(&query_lower);
+        
         let mut results: Vec<(AppInfo, i32)> = apps
             .iter()
             .filter_map(|app| {
@@ -313,13 +347,37 @@ pub mod windows {
 
                 let mut score = 0;
 
-                // Exact match gets highest score
+                // Direct text match (highest priority)
                 if name_lower == query_lower {
                     score += 1000;
                 } else if name_lower.starts_with(&query_lower) {
                     score += 500;
                 } else if name_lower.contains(&query_lower) {
                     score += 100;
+                }
+
+                // Pinyin matching (if query is pinyin)
+                if query_is_pinyin {
+                    let name_pinyin = to_pinyin(&app.name).to_lowercase();
+                    let name_pinyin_initials = to_pinyin_initials(&app.name).to_lowercase();
+                    
+                    // Full pinyin match
+                    if name_pinyin == query_lower {
+                        score += 800; // High score for full pinyin match
+                    } else if name_pinyin.starts_with(&query_lower) {
+                        score += 400;
+                    } else if name_pinyin.contains(&query_lower) {
+                        score += 150;
+                    }
+                    
+                    // Pinyin initials match (e.g., "vs" matches "Visual Studio" -> "vs")
+                    if name_pinyin_initials == query_lower {
+                        score += 600; // High score for initials match
+                    } else if name_pinyin_initials.starts_with(&query_lower) {
+                        score += 300;
+                    } else if name_pinyin_initials.contains(&query_lower) {
+                        score += 120;
+                    }
                 }
 
                 // Path match gets lower score
