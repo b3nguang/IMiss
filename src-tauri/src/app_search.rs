@@ -16,24 +16,63 @@ pub mod windows {
     use super::*;
     use std::env;
 
+    // Cache file name
+    pub fn get_cache_file_path(app_data_dir: &Path) -> PathBuf {
+        app_data_dir.join("app_cache.json")
+    }
+
+    // Load cached apps from disk
+    pub fn load_cache(app_data_dir: &Path) -> Result<Vec<AppInfo>, String> {
+        let cache_file = get_cache_file_path(app_data_dir);
+        
+        if !cache_file.exists() {
+            return Ok(Vec::new());
+        }
+
+        let content = fs::read_to_string(&cache_file)
+            .map_err(|e| format!("Failed to read cache file: {}", e))?;
+
+        let apps: Vec<AppInfo> = serde_json::from_str(&content)
+            .map_err(|e| format!("Failed to parse cache file: {}", e))?;
+
+        Ok(apps)
+    }
+
+    // Save apps cache to disk
+    pub fn save_cache(app_data_dir: &Path, apps: &[AppInfo]) -> Result<(), String> {
+        // Create directory if it doesn't exist
+        if !app_data_dir.exists() {
+            fs::create_dir_all(app_data_dir)
+                .map_err(|e| format!("Failed to create app data directory: {}", e))?;
+        }
+
+        let cache_file = get_cache_file_path(app_data_dir);
+        let json_string = serde_json::to_string_pretty(apps)
+            .map_err(|e| format!("Failed to serialize cache: {}", e))?;
+        
+        fs::write(&cache_file, json_string)
+            .map_err(|e| format!("Failed to write cache file: {}", e))?;
+
+        Ok(())
+    }
+
     // Windows-specific implementation
     pub fn scan_start_menu() -> Result<Vec<AppInfo>, String> {
         let mut apps = Vec::new();
 
-        // Common start menu paths - only scan user's start menu for speed
+        // Common start menu paths - scan both user and system start menus
         let start_menu_paths = vec![
             env::var("APPDATA")
                 .ok()
                 .map(|p| PathBuf::from(p).join("Microsoft/Windows/Start Menu/Programs")),
-            // Skip PROGRAMDATA for now - it's slower and less commonly used
-            // env::var("PROGRAMDATA")
-            //     .ok()
-            //     .map(|p| PathBuf::from(p).join("Microsoft/Windows/Start Menu/Programs")),
+            env::var("PROGRAMDATA")
+                .ok()
+                .map(|p| PathBuf::from(p).join("Microsoft/Windows/Start Menu/Programs")),
         ];
 
         for start_menu_path in start_menu_paths.into_iter().flatten() {
             if start_menu_path.exists() {
-                // Start scanning from depth 0, limit to 2 levels for speed
+                // Start scanning from depth 0, limit to 3 levels for better coverage
                 if let Err(_) = scan_directory(&start_menu_path, &mut apps, 0) {
                     // Continue on error
                 }
@@ -48,14 +87,14 @@ pub mod windows {
     }
 
     fn scan_directory(dir: &Path, apps: &mut Vec<AppInfo>, depth: usize) -> Result<(), String> {
-        // Limit recursion depth to avoid scanning too deep (reduced to 2 for speed)
-        const MAX_DEPTH: usize = 2;
+        // Limit recursion depth to avoid scanning too deep (increased to 3 for better coverage)
+        const MAX_DEPTH: usize = 3;
         if depth > MAX_DEPTH {
             return Ok(());
         }
         
-        // Limit total number of apps to avoid memory issues (reduced for speed)
-        const MAX_APPS: usize = 500;
+        // Limit total number of apps to avoid memory issues (increased to 2000)
+        const MAX_APPS: usize = 2000;
         if apps.len() >= MAX_APPS {
             return Ok(());
         }
@@ -82,8 +121,8 @@ pub mod windows {
                     // Continue on error
                 }
             } else if path.extension().and_then(|s| s.to_str()) == Some("lnk") {
-                // Skip .lnk parsing for now - it's too slow with PowerShell
-                // Just use the .lnk filename as the app name
+                // Fast path: use .lnk filename directly without parsing
+                // This is much faster - we can parse later if needed
                 if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
                     apps.push(AppInfo {
                         name: name.to_string(),
@@ -92,10 +131,6 @@ pub mod windows {
                         description: None,
                     });
                 }
-                // TODO: Optionally parse .lnk files in background for better results
-                // if let Ok(app_info) = parse_lnk_file(&path) {
-                //     apps.push(app_info);
-                // }
             } else if path.extension().and_then(|s| s.to_str()) == Some("exe") {
                 // Direct executable
                 if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
@@ -218,6 +253,21 @@ pub mod windows {
 
     pub fn launch_app(app: &AppInfo) -> Result<(), String> {
         let path = Path::new(&app.path);
+        
+        // If it's a .lnk file, use Windows shell to open it
+        if path.extension().and_then(|s| s.to_str()) == Some("lnk") {
+            #[cfg(target_os = "windows")]
+            {
+                use std::os::windows::process::CommandExt;
+                // Use cmd /c start to properly handle .lnk files
+                Command::new("cmd")
+                    .args(&["/c", "start", "", &app.path])
+                    .creation_flags(0x08000000) // CREATE_NO_WINDOW
+                    .spawn()
+                    .map_err(|e| format!("Failed to launch application: {}", e))?;
+                return Ok(());
+            }
+        }
         
         if !path.exists() {
             return Err(format!("Application not found: {}", app.path));

@@ -14,7 +14,7 @@ static RECORDING_STATE: LazyLock<Arc<Mutex<RecordingState>>> = LazyLock::new(|| 
 
 static REPLAY_STATE: LazyLock<Arc<Mutex<ReplayState>>> = LazyLock::new(|| Arc::new(Mutex::new(ReplayState::new())));
 
-static APP_CACHE: LazyLock<Arc<Mutex<Option<Vec<app_search::AppInfo>>>>> = LazyLock::new(|| Arc::new(Mutex::new(None)));
+pub(crate) static APP_CACHE: LazyLock<Arc<Mutex<Option<Vec<app_search::AppInfo>>>>> = LazyLock::new(|| Arc::new(Mutex::new(None)));
 
 pub fn get_app_data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     // Try to use Tauri's path API first
@@ -434,7 +434,7 @@ pub fn get_playback_progress() -> Result<f32, String> {
 }
 
 #[tauri::command]
-pub fn scan_applications() -> Result<Vec<app_search::AppInfo>, String> {
+pub fn scan_applications(app: tauri::AppHandle) -> Result<Vec<app_search::AppInfo>, String> {
     let cache = APP_CACHE.clone();
     let mut cache_guard = cache.lock().map_err(|e| e.to_string())?;
     
@@ -443,11 +443,42 @@ pub fn scan_applications() -> Result<Vec<app_search::AppInfo>, String> {
         return Ok(apps.clone());
     }
     
-    // Scan applications
+    // Try to load from disk cache first
+    let app_data_dir = get_app_data_dir(&app)?;
+    if let Ok(disk_cache) = app_search::windows::load_cache(&app_data_dir) {
+        if !disk_cache.is_empty() {
+            *cache_guard = Some(disk_cache.clone());
+            // Start background scan to update cache
+            let app_handle = app.clone();
+            let cache_clone = cache.clone();
+            std::thread::spawn(move || {
+                if let Ok(apps) = app_search::windows::scan_start_menu() {
+                    let mut guard = cache_clone.lock().unwrap();
+                    *guard = Some(apps.clone());
+                    // Save to disk in background
+                    if let Ok(app_data_dir) = get_app_data_dir(&app_handle) {
+                        let _ = app_search::windows::save_cache(&app_data_dir, &apps);
+                    }
+                }
+            });
+            return Ok(disk_cache);
+        }
+    }
+    
+    // Scan applications (synchronous, but should be fast now without .lnk parsing)
     let apps = app_search::windows::scan_start_menu()?;
     
     // Cache the results
     *cache_guard = Some(apps.clone());
+    
+    // Save to disk in background
+    let app_handle = app.clone();
+    let apps_clone = apps.clone();
+    std::thread::spawn(move || {
+        if let Ok(app_data_dir) = get_app_data_dir(&app_handle) {
+            let _ = app_search::windows::save_cache(&app_data_dir, &apps_clone);
+        }
+    });
     
     Ok(apps)
 }

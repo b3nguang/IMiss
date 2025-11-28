@@ -149,6 +149,28 @@ fn main() {
             let app_data_dir = get_app_data_dir(app.handle())?;
             file_history::load_history(&app_data_dir).ok(); // Ignore errors if file doesn't exist
 
+            // Load app cache on startup and start background scan
+            let app_data_dir_clone = app_data_dir.clone();
+            std::thread::spawn(move || {
+                use crate::commands::APP_CACHE;
+                // Load from disk cache first (fast)
+                if let Ok(disk_cache) = app_search::windows::load_cache(&app_data_dir_clone) {
+                    if !disk_cache.is_empty() {
+                        if let Ok(mut cache_guard) = APP_CACHE.lock() {
+                            *cache_guard = Some(disk_cache);
+                        }
+                    }
+                }
+                // Start background scan to update cache (async, doesn't block)
+                if let Ok(apps) = app_search::windows::scan_start_menu() {
+                    if let Ok(mut cache_guard) = APP_CACHE.lock() {
+                        *cache_guard = Some(apps.clone());
+                        // Save to disk
+                        let _ = app_search::windows::save_cache(&app_data_dir_clone, &apps);
+                    }
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
