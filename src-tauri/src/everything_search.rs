@@ -111,33 +111,31 @@ pub mod windows {
                                      // 注意：结构体后面紧跟着 UTF-16 字符串，没有额外的对齐
     }
 
-    // Everything IPC 回复结构体（Everything 1.4.1 兼容版本）
-    // 注意：Everything 1.4.1 在 totitems 和 numitems 之间插入了两个额外的 u32 字段
-    // 导致头部从 8 字节变为 20 字节
-    // 实际字段含义：
-    // Offset 0: 可能是当前批次或已处理数量
-    // Offset 4: 可能是已处理的偏移量
-    // Offset 8: 真正的总结果数（totitems）
-    // Offset 12: 当前返回的结果数（numitems）
-    // Offset 16: 当前结果起始索引（offset）
+    // Everything IPC 回复结构体（根据官方头文件 everything_ipc.h）
+    // 对应 EVERYTHING_IPC_LISTW 结构体
+    // 总大小：28 字节（7 * DWORD）
     #[repr(C)]
     #[derive(Debug, Clone, Copy)]
     struct EverythingIpcList {
-        field0: u32,   // Offset 0  - 未知字段
-        unknown1: u32, // Offset 4  - 可能是已处理的偏移量
-        totitems: u32, // Offset 8  - DWORD - 真正的总结果数（之前误认为是 unknown2）
-        numitems: u32, // Offset 12 - DWORD - 当前返回的结果数
-        offset: u32,   // Offset 16 - DWORD - 当前结果起始索引
-                       // items[] follows at offset 20
+        totfolders: u32, // Offset 0  - DWORD - 找到的文件夹总数
+        totfiles: u32,   // Offset 4  - DWORD - 找到的文件总数
+        totitems: u32,   // Offset 8  - DWORD - totfolders + totfiles
+        numfolders: u32, // Offset 12 - DWORD - 当前返回的文件夹数
+        numfiles: u32,   // Offset 16 - DWORD - 当前返回的文件数
+        numitems: u32,   // Offset 20 - DWORD - 当前返回的 item 数
+        offset: u32,     // Offset 24 - DWORD - 第一个结果在 item 列表中的索引偏移
+                         // items[] follows at offset 28
     }
 
-    // Everything IPC Item 结构体
+    // Everything IPC Item 结构体（根据官方头文件 everything_ipc.h）
+    // 对应 EVERYTHING_IPC_ITEMW 结构体
+    // 总大小：12 字节（3 * DWORD）
     #[repr(C)]
     #[derive(Debug, Clone, Copy)]
     struct EverythingIpcItem {
-        flags: u32,           // DWORD
-        filename_offset: u32, // DWORD - 文件名在字符串池中的偏移
-        path_offset: u32,     // DWORD - 路径在字符串池中的偏移
+        flags: u32,           // DWORD - item 标志（EVERYTHING_IPC_FOLDER | EVERYTHING_IPC_DRIVE | EVERYTHING_IPC_ROOT）
+        filename_offset: u32, // DWORD - 文件名从 list 结构起始地址开始的字节偏移
+        path_offset: u32,     // DWORD - 路径从 list 结构起始地址开始的字节偏移
     }
 
     // 全局状态：存储每个窗口句柄对应的发送器
@@ -625,6 +623,7 @@ pub mod windows {
 
     /// 安全读取 UTF-16 字符串（从基地址 + 偏移量）
     /// 允许 offset == 0（表示空字符串）
+    /// offset 必须是相对于整个 EVERYTHING_IPC_LIST 结构起始地址的字节偏移
     unsafe fn read_u16_string_at_offset(
         base: *const u8,
         offset: u32,
@@ -646,21 +645,19 @@ pub mod windows {
             return None;
         }
 
-        // 对于奇数 offset，尝试读取（某些情况下 Everything 可能使用奇数 offset）
-        // 但为了安全，我们优先检查是否为偶数
-        let str_ptr = if (offset % 2) == 0 {
-            // 偶数 offset：直接作为 u16 指针使用
-            base.add(offset as usize) as *const u16
-        } else {
-            // 奇数 offset：记录警告但尝试读取（可能需要特殊处理）
+        // 奇数 offset 是解析错误，Everything 不会返回奇数 offset
+        // UTF-16 字符串必须 2 字节对齐
+        if offset % 2 != 0 {
             log_debug!(
-                "[DEBUG] WARNING: offset {} is odd (not aligned), attempting to read anyway",
+                "[DEBUG] ERROR: Invalid odd offset {} - this indicates a parsing bug! \
+                Everything should never return odd offsets. Check struct layout and base address calculation.",
                 offset
             );
-            // 对齐到最近的偶数地址
-            let aligned_offset = (offset as usize / 2) * 2;
-            base.add(aligned_offset) as *const u16
-        };
+            return None; // 直接返回错误，不要尝试"修复"
+        }
+
+        // 直接使用 offset，不需要对齐
+        let str_ptr = base.add(offset as usize) as *const u16;
 
         // 计算最大可读取的字符数（防止越界）
         let max_chars = ((data_size as usize - offset as usize) / 2).min(max_len);
@@ -673,11 +670,32 @@ pub mod windows {
     fn parse_ipc_reply(
         cds: &COPYDATASTRUCT,
     ) -> Result<(Vec<String>, u32, u32, u32), EverythingError> {
-        let list_size = std::mem::size_of::<EverythingIpcList>() as u32;
+        // 验证结构体大小（根据官方头文件，应该是 28 字节）
+        let expected_list_size = 28u32; // 7 * DWORD = 28 字节
+        let actual_list_size = std::mem::size_of::<EverythingIpcList>() as u32;
+        if actual_list_size != expected_list_size {
+            log_debug!(
+                "[DEBUG] ERROR: EverythingIpcList size mismatch! Expected {}, got {}. This will cause parsing errors!",
+                expected_list_size,
+                actual_list_size
+            );
+        }
+
+        let expected_item_size = 12u32; // 3 * u32 = 12 字节
+        let actual_item_size = std::mem::size_of::<EverythingIpcItem>() as u32;
+        if actual_item_size != expected_item_size {
+            log_debug!(
+                "[DEBUG] ERROR: EverythingIpcItem size is {} bytes, expected 12! This will cause parsing errors.",
+                actual_item_size
+            );
+        }
+
+        let list_size = actual_list_size;
         log_debug!(
-            "[DEBUG] parse_ipc_reply: cbData={}, expected list_size={}",
+            "[DEBUG] parse_ipc_reply: cbData={}, list_size={} (expected {})",
             cds.cbData,
-            list_size
+            list_size,
+            expected_list_size
         );
 
         if cds.cbData < list_size {
@@ -705,20 +723,48 @@ pub mod windows {
                 *bytes.add(14),
                 *bytes.add(15),
             ]);
+            let u32_16 = u32::from_le_bytes([
+                *bytes.add(16),
+                *bytes.add(17),
+                *bytes.add(18),
+                *bytes.add(19),
+            ]);
+            let u32_20 = u32::from_le_bytes([
+                *bytes.add(20),
+                *bytes.add(21),
+                *bytes.add(22),
+                *bytes.add(23),
+            ]);
+            let u32_24 = u32::from_le_bytes([
+                *bytes.add(24),
+                *bytes.add(25),
+                *bytes.add(26),
+                *bytes.add(27),
+            ]);
 
-            // 读取 EverythingIpcList 结构体（Everything 1.4.1 兼容格式：20 字节头部）
+            // 读取 EverythingIpcList 结构体（根据官方头文件：28 字节头部）
             let list_ptr = cds.lpData as *const EverythingIpcList;
             let list = &*list_ptr;
 
-            let totitems = list.totitems; // Offset 8 - 真正的总结果数
-            let numitems = list.numitems; // Offset 12 - 当前返回的结果数
-            let offset = list.offset; // Offset 16 - 当前结果起始索引
+            let totfolders = list.totfolders; // Offset 0
+            let totfiles = list.totfiles;     // Offset 4
+            let totitems = list.totitems;     // Offset 8 - totfolders + totfiles
+            let numfolders = list.numfolders; // Offset 12
+            let numfiles = list.numfiles;     // Offset 16
+            let numitems = list.numitems;     // Offset 20 - 当前返回的 item 数
+            let offset = list.offset;         // Offset 24 - 第一个结果在 item 列表中的索引偏移
 
-            log_debug!("[DEBUG] Header -> TotItems: {} (offset 8), NumItems: {} (offset 12), Offset: {} (offset 16)", totitems, numitems, offset);
             log_debug!(
-                "[DEBUG] Header -> Field0: {} (offset 0), Unknown1: {} (offset 4)",
-                list.field0,
-                list.unknown1
+                "[DEBUG] Header -> TotFolders: {} (offset 0), TotFiles: {} (offset 4), TotItems: {} (offset 8)",
+                totfolders, totfiles, totitems
+            );
+            log_debug!(
+                "[DEBUG] Header -> NumFolders: {} (offset 12), NumFiles: {} (offset 16), NumItems: {} (offset 20), Offset: {} (offset 24)",
+                numfolders, numfiles, numitems, offset
+            );
+            log_debug!(
+                "[DEBUG] Header manual verify -> u32[0]={}, u32[4]={}, u32[8]={}, u32[12]={}, u32[16]={}, u32[20]={}, u32[24]={}",
+                u32_0, u32_4, u32_8, u32_12, u32_16, u32_20, u32_24
             );
 
             // 验证读取的值是否合理（只检查 totitems，不限制 numitems，因为分页时 numitems 是批次大小）
@@ -748,8 +794,8 @@ pub mod windows {
             // 处理所有返回的 item（不再限制）
             let items_to_process = numitems;
 
-            // 计算 Items 起始位置（Everything 1.4.1: Items 数组紧跟在 20 字节的 Header 之后）
-            let items_start_offset = 20;
+            // 计算 Items 起始位置（根据官方头文件：Items 数组紧跟在 28 字节的 Header 之后）
+            let items_start_offset = 28;
             let base_addr = cds.lpData as usize;
             let items_ptr = (base_addr + items_start_offset) as *const EverythingIpcItem;
 
@@ -775,8 +821,9 @@ pub mod windows {
                 )));
             }
 
-            // Everything v1.4.1: offset 字段指向 EVERYTHING_IPC_LIST 基地址的字节偏移
-            // filename_offset 和 path_offset 都是相对于 lpData 的偏移
+            // 根据官方头文件：filename_offset 和 path_offset 都是从 EVERYTHING_IPC_LIST 结构起始地址（lpData）开始的字节偏移
+            // 使用宏定义：EVERYTHING_IPC_ITEMFILENAMEW(list,item) = (WCHAR *)((CHAR *)(list) + item->filename_offset)
+            // 使用宏定义：EVERYTHING_IPC_ITEMPATHW(list,item) = (WCHAR *)((CHAR *)(list) + item->path_offset)
 
             let mut results = Vec::new();
             let mut skipped_count = 0;
@@ -793,6 +840,33 @@ pub mod windows {
                     break;
                 }
 
+                // 对于前几个 item，dump 原始字节用于调试
+                if i < 3 {
+                    let item_bytes = std::slice::from_raw_parts(
+                        current_item_ptr as *const u8,
+                        std::mem::size_of::<EverythingIpcItem>()
+                    );
+                    log_debug!(
+                        "[DEBUG] Item {} raw bytes (12 bytes): {:02X?}",
+                        i,
+                        item_bytes
+                    );
+                    // 手动解析验证结构体布局
+                    let flags_manual = u32::from_le_bytes([
+                        item_bytes[0], item_bytes[1], item_bytes[2], item_bytes[3]
+                    ]);
+                    let filename_offset_manual = u32::from_le_bytes([
+                        item_bytes[4], item_bytes[5], item_bytes[6], item_bytes[7]
+                    ]);
+                    let path_offset_manual = u32::from_le_bytes([
+                        item_bytes[8], item_bytes[9], item_bytes[10], item_bytes[11]
+                    ]);
+                    log_debug!(
+                        "[DEBUG] Item {} manual parse: flags={}, filename_offset={}, path_offset={}",
+                        i, flags_manual, filename_offset_manual, path_offset_manual
+                    );
+                }
+
                 let item = &*current_item_ptr;
                 let flags = item.flags;
                 let filename_offset = item.filename_offset;
@@ -806,6 +880,20 @@ pub mod windows {
                         flags,
                         filename_offset,
                         path_offset
+                    );
+                }
+
+                // 验证读取的 offset 值是否合理
+                if filename_offset != 0 && filename_offset % 2 != 0 {
+                    log_debug!(
+                        "[DEBUG] ERROR: Item {} has odd filename_offset={} - struct parsing may be wrong!",
+                        i, filename_offset
+                    );
+                }
+                if path_offset != 0 && path_offset % 2 != 0 {
+                    log_debug!(
+                        "[DEBUG] ERROR: Item {} has odd path_offset={} - struct parsing may be wrong!",
+                        i, path_offset
                     );
                 }
 
