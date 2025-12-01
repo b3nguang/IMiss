@@ -162,6 +162,48 @@ export function ShortcutsConfig({ onClose }: ShortcutsConfigProps) {
     setEditName("");
   };
 
+  const handleExport = async () => {
+    try {
+      if (fileHistory.length === 0) {
+        alert("没有数据可导出");
+        return;
+      }
+
+      // 生成导出数据
+      const exportData = {
+        version: "1.0",
+        export_date: new Date().toISOString(),
+        items: fileHistory.map(item => ({
+          name: item.name,
+          path: item.path,
+          last_used: item.last_used,
+          use_count: item.use_count,
+        })),
+      };
+
+      const jsonContent = JSON.stringify(exportData, null, 2);
+      const blob = new Blob([jsonContent], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      
+      // 创建下载链接
+      const filename = `快捷访问配置_${new Date().toISOString().split('T')[0]}.json`;
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      // 清理 URL 对象
+      URL.revokeObjectURL(url);
+      
+      alert("导出成功！");
+    } catch (error) {
+      console.error("导出失败:", error);
+      alert(`导出失败: ${error}`);
+    }
+  };
+
   // ESC 键处理：如果在编辑或添加状态，先取消编辑/表单；否则关闭窗口
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -217,13 +259,23 @@ export function ShortcutsConfig({ onClose }: ShortcutsConfigProps) {
       {/* Header - Fixed */}
       <div className="flex items-center justify-between p-6 border-b border-gray-200 flex-shrink-0">
         <h3 className="text-lg font-semibold text-gray-800">快捷访问配置</h3>
-        <button
-          onClick={onClose}
-          className="text-gray-400 hover:text-gray-600 text-xl leading-none"
-          style={{ fontSize: '24px', lineHeight: '1' }}
-        >
-          ×
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleExport}
+            disabled={isLoading || fileHistory.length === 0}
+            className="px-4 py-2 text-sm bg-green-500 text-white rounded hover:bg-green-600 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+            title="导出配置"
+          >
+            导出
+          </button>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 text-xl leading-none"
+            style={{ fontSize: '24px', lineHeight: '1' }}
+          >
+            ×
+          </button>
+        </div>
       </div>
 
       {/* Content - Scrollable */}
