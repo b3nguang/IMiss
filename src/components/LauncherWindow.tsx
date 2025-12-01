@@ -845,17 +845,40 @@ export function LauncherWindow() {
   const handleContextMenu = (e: React.MouseEvent, result: SearchResult) => {
     e.preventDefault();
     e.stopPropagation();
-    setContextMenu({ x: e.clientX, y: e.clientY, result });
+    // 计算菜单位置，避免遮挡文字
+    // 如果右键位置在窗口右侧，将菜单显示在鼠标左侧
+    const windowWidth = window.innerWidth;
+    const menuWidth = 160; // min-w-[160px]
+    let x = e.clientX;
+    let y = e.clientY;
+    
+    // 如果菜单会超出右边界，调整到左侧
+    if (x + menuWidth > windowWidth) {
+      x = e.clientX - menuWidth;
+    }
+    
+    // 如果菜单会超出下边界，调整到上方
+    const menuHeight = 50; // 估算高度
+    if (y + menuHeight > window.innerHeight) {
+      y = e.clientY - menuHeight;
+    }
+    
+    setContextMenu({ x, y, result });
   };
 
   const handleRevealInFolder = async () => {
     if (!contextMenu) return;
     
     try {
-      const path = contextMenu.result.path;
+      const target = contextMenu.result;
+      const path = target.path;
       console.log("Revealing in folder:", path);
-      // Only reveal for file types (file, everything), not for apps or URLs
-      if (contextMenu.result.type === "file" || contextMenu.result.type === "everything") {
+      // 为应用、文件和 Everything 结果都提供“打开所在文件夹”
+      if (
+        target.type === "file" ||
+        target.type === "everything" ||
+        target.type === "app"
+      ) {
         // Use Tauri opener plugin to reveal file in folder
         await revealItemInDir(path);
         console.log("Reveal in folder called successfully");
@@ -1661,13 +1684,15 @@ export function LauncherWindow() {
       {contextMenu && (
         <div
           ref={contextMenuRef}
-          className="fixed bg-gray-800 text-white rounded-lg shadow-xl py-1 min-w-[160px] z-50"
+          className="fixed bg-white border border-gray-200 text-gray-800 rounded-lg shadow-xl py-1 min-w-[160px] z-50"
           style={{
             left: `${contextMenu.x}px`,
             top: `${contextMenu.y}px`,
           }}
         >
-          {(contextMenu.result.type === "file" || contextMenu.result.type === "everything") && (
+          {(contextMenu.result.type === "file" ||
+            contextMenu.result.type === "everything" ||
+            contextMenu.result.type === "app") && (
             <button
               onClick={(e) => {
                 e.preventDefault();
@@ -1678,7 +1703,7 @@ export function LauncherWindow() {
                 e.preventDefault();
                 e.stopPropagation();
               }}
-              className="w-full text-left px-4 py-2 text-sm hover:bg-gray-700 transition-colors"
+              className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 transition-colors"
             >
               打开所在文件夹
             </button>
