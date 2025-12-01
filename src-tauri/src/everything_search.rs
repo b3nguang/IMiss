@@ -356,44 +356,11 @@ pub mod windows {
         const WM_MOUSEMOVE: u32 = 0x0200;
         const WM_NCHITTEST: u32 = 0x0084;
 
-        // 特别记录 WM_COPYDATA，这是关键消息
-        if msg == WM_COPYDATA {
-            log_debug!("[DEBUG] ===== CRITICAL: window_proc called with WM_COPYDATA =====");
-            log_debug!("[DEBUG] window_proc: msg=0x{:X} (WM_COPYDATA), hwnd={:?}, wparam={:?}, lparam={:?}", 
-                msg, hwnd, wparam, lparam);
-        } else if msg != WM_TIMER
-            && msg != WM_PAINT
-            && msg != WM_SETCURSOR
-            && msg != WM_MOUSEMOVE
-            && msg != WM_NCHITTEST
-        {
-            log_debug!(
-                "[DEBUG] window_proc called: msg=0x{:X} ({}), hwnd={:?}, wparam={:?}, lparam={:?}",
-                msg,
-                msg,
-                hwnd,
-                wparam,
-                lparam
-            );
-        }
+        // 只记录重要消息，忽略常见的系统消息以减少日志噪音
 
         match msg {
             WM_COPYDATA => {
-                log_debug!("[DEBUG] ===== WM_COPYDATA RECEIVED =====");
-                log_debug!(
-                    "[DEBUG] WM_COPYDATA hwnd: {:?}, wparam: {:?}, lparam: {:?}",
-                    hwnd,
-                    wparam,
-                    lparam
-                );
-
                 let cds = ptr::read(lparam as *const COPYDATASTRUCT);
-                log_debug!(
-                    "[DEBUG] COPYDATASTRUCT: dwData={}, cbData={} bytes, lpData={:?}",
-                    cds.dwData,
-                    cds.cbData,
-                    cds.lpData
-                );
 
                 // Everything 回复时，dwData 通常是 EVERYTHING_IPC_REPLY (2)
                 // 新协议也可能使用我们发送的 reply_copydata_message 值
@@ -403,15 +370,11 @@ pub mod windows {
                     || cds.dwData == 0x804E; // 兼容新协议可能的回复值
 
                 if is_reply {
-                    log_debug!(
-                        "[DEBUG] Processing Everything reply (dwData={})",
-                        cds.dwData
-                    );
                     // 解析结果（现在返回四元组：结果列表, 总条数, 当前页条数, 当前页偏移量）
                     let result = parse_ipc_reply(&cds);
                     match &result {
-                        Ok((paths, tot, num, off)) => {
-                            log_debug!("[DEBUG] Parsed result: {} paths (Total: {}, This batch: {}, Offset: {})", paths.len(), tot, num, off);
+                        Ok((paths, tot, num, _off)) => {
+                            log_debug!("[DEBUG] Parsed result: {} paths (Total: {}, This batch: {})", paths.len(), tot, num);
                         }
                         Err(e) => {
                             log_debug!("[DEBUG] Parsed result error: {:?}", e);
@@ -420,29 +383,16 @@ pub mod windows {
 
                     // 获取对应的发送器并发送结果
                     let senders = get_window_senders();
-                    log_debug!("[DEBUG] Looking up sender for hwnd: {:?}", hwnd);
                     if let Ok(senders_guard) = senders.lock() {
-                        log_debug!("[DEBUG] Senders map has {} entries", senders_guard.len());
-                        log_debug!(
-                            "[DEBUG] Registered hwnds: {:?}",
-                            senders_guard.keys().collect::<Vec<_>>()
-                        );
-
                         if let Some(sender) = senders_guard.get(&hwnd) {
-                            log_debug!("[DEBUG] Found sender! Sending result to channel");
-                            match sender.send(result) {
-                                Ok(_) => log_debug!("[DEBUG] Result sent to channel successfully"),
-                                Err(e) => log_debug!(
+                            if let Err(e) = sender.send(result) {
+                                log_debug!(
                                     "[DEBUG] ERROR: Failed to send result to channel: {:?}",
                                     e
-                                ),
+                                );
                             }
                         } else {
                             log_debug!("[DEBUG] WARNING: No sender found for hwnd: {:?}", hwnd);
-                            log_debug!(
-                                "[DEBUG] Available hwnds: {:?}",
-                                senders_guard.keys().collect::<Vec<_>>()
-                            );
                         }
                     } else {
                         log_debug!("[DEBUG] ERROR: Failed to lock senders mutex");
@@ -450,18 +400,14 @@ pub mod windows {
                 } else {
                     log_debug!("[DEBUG] Unexpected dwData value: {} (expected EVERYTHING_IPC_REPLY={} or COPYDATA_QUERYCOMPLETE={})", 
                         cds.dwData, EVERYTHING_IPC_REPLY, COPYDATA_QUERYCOMPLETE);
-                    log_debug!("[DEBUG] This might be a different type of COPYDATA message");
                 }
-                log_debug!("[DEBUG] ===== WM_COPYDATA HANDLED =====");
                 1 // TRUE - 消息已处理
             }
             WM_DESTROY => {
-                log_debug!("[DEBUG] WM_DESTROY received for hwnd: {:?}", hwnd);
                 // 清理发送器
                 let senders = get_window_senders();
                 if let Ok(mut senders_guard) = senders.lock() {
                     senders_guard.remove(&hwnd);
-                    log_debug!("[DEBUG] Removed sender for hwnd: {:?}", hwnd);
                 }
                 PostQuitMessage(0);
                 0
@@ -691,12 +637,6 @@ pub mod windows {
         }
 
         let list_size = actual_list_size;
-        log_debug!(
-            "[DEBUG] parse_ipc_reply: cbData={}, list_size={} (expected {})",
-            cds.cbData,
-            list_size,
-            expected_list_size
-        );
 
         if cds.cbData < list_size {
             log_debug!(
@@ -708,40 +648,6 @@ pub mod windows {
         }
 
         unsafe {
-            // 性能优化：只在调试模式下打印详细数据
-            // 手动解析前几个 u32 值（用于验证结构体）
-            let bytes = cds.lpData as *const u8;
-            let u32_0 =
-                u32::from_le_bytes([*bytes.add(0), *bytes.add(1), *bytes.add(2), *bytes.add(3)]);
-            let u32_4 =
-                u32::from_le_bytes([*bytes.add(4), *bytes.add(5), *bytes.add(6), *bytes.add(7)]);
-            let u32_8 =
-                u32::from_le_bytes([*bytes.add(8), *bytes.add(9), *bytes.add(10), *bytes.add(11)]);
-            let u32_12 = u32::from_le_bytes([
-                *bytes.add(12),
-                *bytes.add(13),
-                *bytes.add(14),
-                *bytes.add(15),
-            ]);
-            let u32_16 = u32::from_le_bytes([
-                *bytes.add(16),
-                *bytes.add(17),
-                *bytes.add(18),
-                *bytes.add(19),
-            ]);
-            let u32_20 = u32::from_le_bytes([
-                *bytes.add(20),
-                *bytes.add(21),
-                *bytes.add(22),
-                *bytes.add(23),
-            ]);
-            let u32_24 = u32::from_le_bytes([
-                *bytes.add(24),
-                *bytes.add(25),
-                *bytes.add(26),
-                *bytes.add(27),
-            ]);
-
             // 读取 EverythingIpcList 结构体（根据官方头文件：28 字节头部）
             let list_ptr = cds.lpData as *const EverythingIpcList;
             let list = &*list_ptr;
@@ -753,19 +659,6 @@ pub mod windows {
             let numfiles = list.numfiles;     // Offset 16
             let numitems = list.numitems;     // Offset 20 - 当前返回的 item 数
             let offset = list.offset;         // Offset 24 - 第一个结果在 item 列表中的索引偏移
-
-            log_debug!(
-                "[DEBUG] Header -> TotFolders: {} (offset 0), TotFiles: {} (offset 4), TotItems: {} (offset 8)",
-                totfolders, totfiles, totitems
-            );
-            log_debug!(
-                "[DEBUG] Header -> NumFolders: {} (offset 12), NumFiles: {} (offset 16), NumItems: {} (offset 20), Offset: {} (offset 24)",
-                numfolders, numfiles, numitems, offset
-            );
-            log_debug!(
-                "[DEBUG] Header manual verify -> u32[0]={}, u32[4]={}, u32[8]={}, u32[12]={}, u32[16]={}, u32[20]={}, u32[24]={}",
-                u32_0, u32_4, u32_8, u32_12, u32_16, u32_20, u32_24
-            );
 
             // 验证读取的值是否合理（只检查 totitems，不限制 numitems，因为分页时 numitems 是批次大小）
             if totitems > 10_000_000 {
@@ -779,15 +672,8 @@ pub mod windows {
                 )));
             }
 
-            // 记录分页信息
-            if totitems > numitems {
-                log_debug!("[DEBUG] Pagination detected: TotItems={}, NumItems={}, Offset={} (more results available)", 
-                    totitems, numitems, offset);
-            }
-
             // 如果 totitems 和 numitems 为 0，直接返回空结果
             if numitems == 0 {
-                log_debug!("[DEBUG] numitems is 0, returning empty result");
                 return Ok((Vec::new(), totitems, 0, offset));
             }
 
@@ -798,12 +684,6 @@ pub mod windows {
             let items_start_offset = 28;
             let base_addr = cds.lpData as usize;
             let items_ptr = (base_addr + items_start_offset) as *const EverythingIpcItem;
-
-            log_debug!(
-                "[DEBUG] Items array starts at offset: {} (0x{:X})",
-                items_start_offset,
-                items_start_offset
-            );
 
             // 验证数据大小是否足够容纳所有 items
             let items_size = (items_to_process as usize) * std::mem::size_of::<EverythingIpcItem>();
@@ -840,50 +720,12 @@ pub mod windows {
                     break;
                 }
 
-                // 对于前几个 item，dump 原始字节用于调试
-                if i < 3 {
-                    let item_bytes = std::slice::from_raw_parts(
-                        current_item_ptr as *const u8,
-                        std::mem::size_of::<EverythingIpcItem>()
-                    );
-                    log_debug!(
-                        "[DEBUG] Item {} raw bytes (12 bytes): {:02X?}",
-                        i,
-                        item_bytes
-                    );
-                    // 手动解析验证结构体布局
-                    let flags_manual = u32::from_le_bytes([
-                        item_bytes[0], item_bytes[1], item_bytes[2], item_bytes[3]
-                    ]);
-                    let filename_offset_manual = u32::from_le_bytes([
-                        item_bytes[4], item_bytes[5], item_bytes[6], item_bytes[7]
-                    ]);
-                    let path_offset_manual = u32::from_le_bytes([
-                        item_bytes[8], item_bytes[9], item_bytes[10], item_bytes[11]
-                    ]);
-                    log_debug!(
-                        "[DEBUG] Item {} manual parse: flags={}, filename_offset={}, path_offset={}",
-                        i, flags_manual, filename_offset_manual, path_offset_manual
-                    );
-                }
-
                 let item = &*current_item_ptr;
                 let flags = item.flags;
                 let filename_offset = item.filename_offset;
                 let path_offset = item.path_offset;
 
-                // 只在处理前几个 item 时输出详细日志，减少日志噪音
-                if i < 5 {
-                    log_debug!(
-                        "[DEBUG] Item {}: flags={}, filename_offset={}, path_offset={}",
-                        i,
-                        flags,
-                        filename_offset,
-                        path_offset
-                    );
-                }
-
-                // 验证读取的 offset 值是否合理
+                // 验证读取的 offset 值是否合理（只记录错误）
                 if filename_offset != 0 && filename_offset % 2 != 0 {
                     log_debug!(
                         "[DEBUG] ERROR: Item {} has odd filename_offset={} - struct parsing may be wrong!",
@@ -999,11 +841,7 @@ pub mod windows {
 
                 // 只有当文件名或路径至少有一个有效时才添加结果
                 if !filename.is_empty() || !path_part.is_empty() {
-                    // 对于前几个 item，输出详细日志用于调试路径问题
-                    if i < 5 {
-                        log_debug!("[DEBUG] Item {}: path_part='{}', filename='{}', full_path='{}'",
-                            i, path_part, filename, full_path);
-                    }
+                    // 只在出错时输出详细日志
                     results.push(full_path);
                 } else {
                     skipped_count += 1;
@@ -1169,35 +1007,20 @@ pub mod windows {
         reply_hwnd: HWND,
         everything_hwnd: HWND,
     ) -> Result<(), EverythingError> {
-        log_debug!("[DEBUG] send_search_query called: query='{}', max_results={}, offset={}, reply_hwnd={:?}, everything_hwnd={:?}", 
-            query, max_results, offset, reply_hwnd, everything_hwnd);
-
         // 将查询字符串转换为 UTF-16（以双 0 结尾）
         let query_wide = wide_string(query);
-        log_debug!(
-            "[DEBUG] Query converted to UTF-16: {} chars (including double null terminator)",
-            query_wide.len()
-        );
         // 验证字符串以双 0 结尾
         if query_wide.len() < 2
             || query_wide[query_wide.len() - 2] != 0
             || query_wide[query_wide.len() - 1] != 0
         {
             log_debug!("[DEBUG] WARNING: Query string does not end with double null!");
-        } else {
-            log_debug!("[DEBUG] Query string correctly ends with double null (UTF-16)");
         }
 
         // 计算结构体大小（Everything 1.4+ QueryW 协议）
         let base_size = std::mem::size_of::<EverythingIpcQueryW>();
         let string_size = query_wide.len() * std::mem::size_of::<u16>();
         let struct_size = base_size + string_size;
-        log_debug!(
-            "[DEBUG] Query structure size: base={}, string={}, total={}",
-            base_size,
-            string_size,
-            struct_size
-        );
 
         // 分配内存
         let mut query_data = vec![0u8; struct_size];
@@ -1212,27 +1035,9 @@ pub mod windows {
             (*query_ptr).reply_offset = offset; // 使用传入的 offset 参数
             (*query_ptr).max_results = max_results;
 
-            log_debug!("[DEBUG] Query structure filled (Everything 1.4+ QueryW protocol):");
-            log_debug!(
-                "[DEBUG]   reply_hwnd={:?} (as u32: {}) (offset 0)",
-                reply_hwnd,
-                reply_hwnd as u32
-            );
-            log_debug!(
-                "[DEBUG]   reply_copydata_message={:08X} (0x804E) (offset 4)",
-                COPYDATA_QUERYCOMPLETE
-            );
-            log_debug!("[DEBUG]   search_flags=0 (offset 8)");
-            log_debug!("[DEBUG]   reply_offset={} (offset 12)", offset);
-            log_debug!("[DEBUG]   max_results={} (offset 16)", max_results);
-
             // 复制查询字符串到结构体后面
             let search_string_ptr = (query_ptr as *mut u8).add(base_size) as *mut u16;
             ptr::copy_nonoverlapping(query_wide.as_ptr(), search_string_ptr, query_wide.len());
-            log_debug!(
-                "[DEBUG] Query string copied to structure ({} UTF-16 chars)",
-                query_wide.len()
-            );
         }
 
         // 创建 COPYDATASTRUCT（Everything 1.4+ 使用 QueryW 协议）
@@ -1242,85 +1047,12 @@ pub mod windows {
             lpData: query_data.as_mut_ptr() as *mut std::ffi::c_void,
         };
 
-        log_debug!("[DEBUG] COPYDATASTRUCT created: dwData={} (EVERYTHING_IPC_COPYDATAQUERYW, QueryW protocol), cbData={}", 
-            cds.dwData, cds.cbData);
-
-        // 打印前32字节用于调试（写入日志文件）
-        unsafe {
-            let mut hex_dump = String::new();
-            for i in 0..32.min(query_data.len()) {
-                if i % 16 == 0 {
-                    hex_dump.push_str(&format!("\n[DEBUG]   {:04X}: ", i));
-                }
-                hex_dump.push_str(&format!("{:02X} ", query_data[i]));
-            }
-            log_debug!("[DEBUG] First 32 bytes of query data:{}", hex_dump);
-
-            log_debug!("[DEBUG] Structure breakdown (Everything 1.4+ QueryW protocol):");
-            log_debug!(
-                "[DEBUG]   reply_hwnd (offset 0): {:08X}",
-                u32::from_le_bytes([query_data[0], query_data[1], query_data[2], query_data[3]])
-            );
-            log_debug!(
-                "[DEBUG]   reply_copydata_message (offset 4): {:08X}",
-                u32::from_le_bytes([query_data[4], query_data[5], query_data[6], query_data[7]])
-            );
-            log_debug!(
-                "[DEBUG]   search_flags (offset 8): {:08X}",
-                u32::from_le_bytes([query_data[8], query_data[9], query_data[10], query_data[11]])
-            );
-            log_debug!(
-                "[DEBUG]   reply_offset (offset 12): {:08X}",
-                u32::from_le_bytes([
-                    query_data[12],
-                    query_data[13],
-                    query_data[14],
-                    query_data[15]
-                ])
-            );
-            log_debug!(
-                "[DEBUG]   max_results (offset 16): {:08X}",
-                u32::from_le_bytes([
-                    query_data[16],
-                    query_data[17],
-                    query_data[18],
-                    query_data[19]
-                ])
-            );
-            log_debug!("[DEBUG]   search_string starts at offset {}", base_size);
-
-            // 打印完整的字符串内容
-            if query_data.len() > base_size {
-                let string_start = base_size;
-                let mut string_bytes = Vec::new();
-                for i in string_start..query_data.len().min(string_start + 64) {
-                    string_bytes.push(query_data[i]);
-                }
-                log_debug!(
-                    "[DEBUG]   search_string bytes (first 64): {:?}",
-                    string_bytes
-                );
-            }
-        }
 
         // 发送消息
         unsafe {
-            log_debug!("[DEBUG] ===== About to send WM_COPYDATA =====");
-            log_debug!("[DEBUG] Target Everything window: {:?}", everything_hwnd);
-            log_debug!("[DEBUG] Reply window (wparam): {:?}", reply_hwnd);
-            log_debug!(
-                "[DEBUG] COPYDATASTRUCT: dwData={}, cbData={}",
-                cds.dwData,
-                cds.cbData
-            );
-
             // 验证窗口句柄是否有效
             use windows_sys::Win32::UI::WindowsAndMessaging::IsWindow;
             let window_valid = IsWindow(everything_hwnd);
-            log_debug!(
-                "[DEBUG] Everything window handle valid: {} (0=invalid, non-zero=valid)",
-                window_valid
-            );
 
             if window_valid == 0 {
                 return Err(EverythingError::IpcFailed(format!(
@@ -1328,8 +1060,6 @@ pub mod windows {
                     everything_hwnd
                 )));
             }
-
-            log_debug!("[DEBUG] Calling SendMessageW (this will block until Everything processes the message)...");
 
             // SendMessageW 是同步的，会阻塞直到 Everything 处理完消息
             // 如果 Everything 在 SendMessageW 期间调用 SendMessageW 发送回复到我们的窗口，
@@ -1340,14 +1070,6 @@ pub mod windows {
                 reply_hwnd as WPARAM,
                 &mut cds as *mut COPYDATASTRUCT as LPARAM,
             );
-
-            log_debug!(
-                "[DEBUG] ===== CRITICAL: SendMessageW returned: {} (0=FALSE, non-zero=TRUE) =====",
-                result
-            );
-            log_debug!("[DEBUG] SendMessageW completed (Everything has processed the query)");
-            log_debug!("[DEBUG] NOTE: If Everything sent reply via SendMessageW, window_proc should have been called during SendMessageW");
-            log_debug!("[DEBUG] NOTE: If Everything sent reply via PostMessage, we need to wait in message loop");
 
             if result == 0 {
                 let last_error = windows_sys::Win32::Foundation::GetLastError();
@@ -1500,21 +1222,11 @@ pub mod windows {
             log_debug!("[DEBUG] ERROR: Everything service is not running");
             EverythingError::ServiceNotRunning
         })?;
-        log_debug!(
-            "[DEBUG] Everything service is running, window: {:?}",
-            everything_hwnd
-        );
-
         // 创建 IPC 句柄
-        log_debug!("[DEBUG] Creating IPC handle...");
         let ipc_handle = EverythingIpcHandle::new().map_err(|e| {
             log_debug!("[DEBUG] ERROR: Failed to create IPC handle: {:?}", e);
             e
         })?;
-        log_debug!(
-            "[DEBUG] IPC handle created successfully, reply_hwnd: {:?}",
-            ipc_handle.reply_hwnd
-        );
 
         // 分页参数
         let mut all_results = Vec::new();
@@ -1523,8 +1235,6 @@ pub mod windows {
                                                  // 每次请求的批次大小（建议 2000，太大可能导致 IPC 缓冲区溢出）
         let batch_size = 2000;
         let timeout = Duration::from_secs(5);
-
-        log_debug!("[DEBUG] ===== Starting paginated search loop =====");
 
         // 分页循环：直到获取所有结果
         loop {
@@ -1606,13 +1316,9 @@ pub mod windows {
                 }
             };
 
-            log_debug!("[DEBUG] Batch received: got {} items (Total in DB: {}, Reply offset: {}, Our offset: {})", 
-                num_items, tot_items, reply_offset, current_offset);
-
             // 保存第一次获取的总数
             if total_count.is_none() {
                 total_count = Some(tot_items);
-                log_debug!("[DEBUG] Total count from Everything: {}", tot_items);
             }
 
             // 转换路径为 EverythingResult
@@ -1644,37 +1350,14 @@ pub mod windows {
             let next_offset = all_results.len() as u32;
             current_offset = next_offset;
 
-            log_debug!("[DEBUG] Offset update: accumulated={} results, next_offset={} (Everything returned reply_offset={})", 
-                all_results.len(), next_offset, reply_offset);
-
-            log_debug!(
-                "[DEBUG] Accumulated {} results so far (next offset: {}/{})",
-                all_results.len(),
-                current_offset,
-                tot_items
-            );
-
             // 检查退出条件
-            log_debug!("[DEBUG] Checking exit conditions: accumulated={}, tot_items={}, num_items={}, max_results={}", 
-                all_results.len(), tot_items, num_items, max_results);
-
             // 条件1: 达到了用户设定的总最大限制
             if all_results.len() >= max_results {
-                log_debug!(
-                    "[DEBUG] EXIT: Reached max_results limit: {} >= {}",
-                    all_results.len(),
-                    max_results
-                );
                 break;
             }
 
             // 条件2: 已获取所有结果（使用 tot_items 判断）
             if all_results.len() >= tot_items as usize {
-                log_debug!(
-                    "[DEBUG] EXIT: All results fetched: {} >= {} (tot_items)",
-                    all_results.len(),
-                    tot_items
-                );
                 break;
             }
 
@@ -1682,14 +1365,8 @@ pub mod windows {
             // 如果还有更多结果（accumulated < tot_items），尝试使用累积结果数作为 offset 继续
             if num_items == 0 {
                 if all_results.len() < tot_items as usize {
-                    log_debug!("[DEBUG] Received 0 items but still need {} more, trying with accumulated count as offset", 
-                        tot_items as usize - all_results.len());
                     // 尝试使用累积的结果数量作为新的 offset
                     current_offset = all_results.len() as u32;
-                    log_debug!(
-                        "[DEBUG] Retrying with offset based on accumulated count: {}",
-                        current_offset
-                    );
                     // 继续循环，尝试新的 offset
                     continue;
                 } else {
