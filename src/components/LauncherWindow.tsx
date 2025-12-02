@@ -8,7 +8,7 @@ import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { plugins, searchPlugins, executePlugin } from "../plugins";
 
 type SearchResult = {
-  type: "app" | "file" | "everything" | "url" | "memo" | "plugin" | "system_folder";
+  type: "app" | "file" | "everything" | "url" | "memo" | "plugin" | "system_folder" | "history";
   app?: AppInfo;
   file?: FileHistoryItem;
   everything?: EverythingResult;
@@ -516,6 +516,11 @@ export function LauncherWindow() {
   // Combine apps, files, Everything results, and URLs into results when they change
   // 使用 useMemo 优化，避免不必要的重新计算
   const combinedResults = useMemo(() => {
+    // 如果查询为空，直接返回空数组，不显示任何结果
+    if (query.trim() === "") {
+      return [];
+    }
+    
     const urlResults: SearchResult[] = detectedUrls.map((url) => ({
       type: "url" as const,
       url,
@@ -523,7 +528,20 @@ export function LauncherWindow() {
       path: url,
     }));
     
+    // 检查是否应该显示"历史访问"结果（只在明确搜索相关关键词时显示）
+    const lowerQuery = query.toLowerCase().trim();
+    const historyKeywords = ["历史访问", "历史", "访问历史", "ls", "history"];
+    const shouldShowHistory = historyKeywords.some(keyword => 
+      lowerQuery.includes(keyword.toLowerCase()) || keyword.toLowerCase().includes(lowerQuery)
+    );
+    
     const otherResults: SearchResult[] = [
+      // 如果查询匹配历史访问关键词，添加历史访问结果
+      ...(shouldShowHistory ? [{
+        type: "history" as const,
+        displayName: "历史访问",
+        path: "history://shortcuts-config",
+      }] : []),
       ...filteredApps.map((app) => ({
         type: "app" as const,
         app,
@@ -575,7 +593,7 @@ export function LauncherWindow() {
     
     // URLs always come first, then other results sorted by open history
     return [...urlResults, ...otherResults];
-  }, [filteredApps, filteredFiles, filteredMemos, filteredPlugins, systemFolders, everythingResults, detectedUrls, openHistory]);
+  }, [filteredApps, filteredFiles, filteredMemos, filteredPlugins, systemFolders, everythingResults, detectedUrls, openHistory, query]);
 
   // 分批加载结果的函数
   const loadResultsIncrementally = (allResults: SearchResult[]) => {
@@ -1096,6 +1114,11 @@ export function LauncherWindow() {
 
       if (result.type === "url" && result.url) {
         await tauriApi.openUrl(result.url);
+      } else if (result.type === "history") {
+        // 打开历史访问窗口
+        await tauriApi.showShortcutsConfig();
+        // 不关闭启动器，让用户查看历史访问
+        return;
       } else if (result.type === "app" && result.app) {
         await tauriApi.launchApplication(result.app);
       } else if (result.type === "file" && result.file) {
@@ -1576,7 +1599,7 @@ export function LauncherWindow() {
                   e.stopPropagation();
                 }}
                 style={{ cursor: 'pointer', minWidth: '24px', minHeight: '24px' }}
-                title="快捷访问配置"
+                title="历史访问"
               >
                 <svg
                   className={`w-5 h-5 transition-all ${
@@ -1700,6 +1723,22 @@ export function LauncherWindow() {
                             d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
                           />
                         </svg>
+                      ) : result.type === "history" ? (
+                        <svg
+                          className={`w-5 h-5 ${
+                            index === selectedIndex ? "text-white" : "text-orange-500"
+                          }`}
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"
+                          />
+                        </svg>
                       ) : (result.type === "system_folder" && result.systemFolder?.is_folder) ||
                         (result.type === "file" &&
                           ((result.file?.is_folder ?? null) !== null
@@ -1761,7 +1800,7 @@ export function LauncherWindow() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="font-medium truncate">{result.displayName}</div>
-                      {result.path && result.type !== "memo" && (
+                      {result.path && result.type !== "memo" && result.type !== "history" && (
                         <div
                           className={`text-sm truncate ${
                             index === selectedIndex ? "text-blue-100" : "text-gray-500"

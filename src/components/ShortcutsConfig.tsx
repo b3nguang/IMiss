@@ -186,7 +186,7 @@ export function ShortcutsConfig({ onClose }: ShortcutsConfigProps) {
       const url = URL.createObjectURL(blob);
       
       // 创建下载链接
-      const filename = `快捷访问配置_${new Date().toISOString().split('T')[0]}.json`;
+      const filename = `历史访问_${new Date().toISOString().split('T')[0]}.json`;
       const link = document.createElement("a");
       link.href = url;
       link.download = filename;
@@ -258,7 +258,7 @@ export function ShortcutsConfig({ onClose }: ShortcutsConfigProps) {
     >
       {/* Header - Fixed */}
       <div className="flex items-center justify-between p-6 border-b border-gray-200 flex-shrink-0">
-        <h3 className="text-lg font-semibold text-gray-800">快捷访问配置</h3>
+        <h3 className="text-lg font-semibold text-gray-800">历史访问</h3>
         <button
           onClick={handleExport}
           disabled={isLoading || fileHistory.length === 0}

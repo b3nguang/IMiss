@@ -1828,7 +1828,7 @@ pub async fn show_shortcuts_config(app: tauri::AppHandle) -> Result<(), String> 
             "shortcuts-config",
             tauri::WebviewUrl::App("index.html".into()),
         )
-        .title("快捷访问配置")
+        .title("历史访问")
         .inner_size(700.0, 600.0)
         .resizable(true)
         .always_on_top(true)
