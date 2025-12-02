@@ -67,6 +67,15 @@ export function LauncherWindow() {
   const [isPluginListModalOpen, setIsPluginListModalOpen] = useState(false);
   const [systemFolders, setSystemFolders] = useState<SystemFolderItem[]>([]);
   const [openHistory, setOpenHistory] = useState<Record<string, number>>({});
+  const [windowWidth, setWindowWidth] = useState<number>(() => {
+    // 从本地存储读取保存的宽度，默认600
+    const saved = localStorage.getItem('launcher-window-width');
+    return saved ? parseInt(saved, 10) : 600;
+  });
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeStartX = useRef<number>(0);
+  const resizeStartWidth = useRef<number>(600);
+  const resizeRafId = useRef<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
@@ -230,12 +239,8 @@ export function LauncherWindow() {
     const adjustWindowForModal = () => {
       const window = getCurrentWindow();
       
-      // Get the main container width to maintain consistent width
-      const whiteContainer = document.querySelector('.bg-white');
-      const containerWidth = whiteContainer ? whiteContainer.scrollWidth : 600;
-      // Limit max width to prevent window from being too wide
-      const maxWidth = 600;
-      const targetWidth = Math.min(containerWidth, maxWidth);
+      // Use saved window width
+      const targetWidth = windowWidth;
       
       // Find the modal element and calculate its actual height
       const modalElement = document.querySelector('[class*="bg-white"][class*="rounded-lg"][class*="shadow-xl"]');
@@ -330,11 +335,9 @@ export function LauncherWindow() {
       const whiteContainer = document.querySelector('.bg-white');
       if (whiteContainer) {
         // Use scrollHeight to get the full content height including overflow
-        const containerWidth = whiteContainer.scrollWidth;
         const containerHeight = whiteContainer.scrollHeight;
-        // Limit max width to prevent window from being too wide
-        const maxWidth = 600;
-        const targetWidth = Math.min(containerWidth, maxWidth);
+        // Use saved window width or default
+        const targetWidth = windowWidth;
         // Use setSize to match content area exactly (decorations are disabled)
         window.setSize(new LogicalSize(targetWidth, containerHeight)).catch(console.error);
       }
@@ -1024,11 +1027,9 @@ export function LauncherWindow() {
           requestAnimationFrame(() => {
             requestAnimationFrame(() => {
               // Use scrollWidth/scrollHeight to get the full content size
-              const containerWidth = whiteContainer.scrollWidth;
               const containerHeight = whiteContainer.scrollHeight;
-              // Limit max width to prevent window from being too wide
-              const maxWidth = 600;
-              const targetWidth = Math.min(containerWidth, maxWidth);
+              // Use saved window width
+              const targetWidth = windowWidth;
               
               // 限制最大高度，避免窗口突然撑高导致不丝滑
               const MAX_HEIGHT = 600; // 最大高度600px
@@ -1062,11 +1063,9 @@ export function LauncherWindow() {
           requestAnimationFrame(() => {
             requestAnimationFrame(() => {
               const containerRect = whiteContainer.getBoundingClientRect();
-              const containerWidth = containerRect.width;
               const containerHeight = containerRect.height;
-              // Limit max width to prevent window from being too wide
-              const maxWidth = 600;
-              const targetWidth = Math.min(containerWidth, maxWidth);
+              // Use saved window width
+              const targetWidth = windowWidth;
               
               // 限制最大高度，避免窗口突然撑高导致不丝滑
               const MAX_HEIGHT = 600; // 最大高度600px
@@ -1082,7 +1081,96 @@ export function LauncherWindow() {
       
       // Adjust size after results state updates (减少延迟)
       setTimeout(adjustWindowSize, 100);
-    }, [results, showDownloadModal, isMemoModalOpen]);
+    }, [results, showDownloadModal, isMemoModalOpen, windowWidth]);
+
+  // Update window size when windowWidth changes (but not during resizing)
+  useEffect(() => {
+    if (isMemoModalOpen || isPluginListModalOpen || showDownloadModal || isResizing) {
+      return;
+    }
+    
+    const adjustWindowSize = () => {
+      const window = getCurrentWindow();
+      const whiteContainer = document.querySelector('.bg-white');
+      if (whiteContainer) {
+        const containerHeight = whiteContainer.scrollHeight;
+        const MAX_HEIGHT = 600;
+        const MIN_HEIGHT = 80;
+        const targetHeight = Math.max(MIN_HEIGHT, Math.min(containerHeight, MAX_HEIGHT));
+        window.setSize(new LogicalSize(windowWidth, targetHeight)).catch(console.error);
+      }
+    };
+    
+    setTimeout(adjustWindowSize, 50);
+  }, [windowWidth, isMemoModalOpen, isPluginListModalOpen, showDownloadModal, isResizing]);
+
+  // Handle window width resizing
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const whiteContainer = document.querySelector('.bg-white') as HTMLElement;
+    if (!whiteContainer) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      // Cancel any pending animation frame
+      if (resizeRafId.current !== null) {
+        cancelAnimationFrame(resizeRafId.current);
+      }
+
+      // Use requestAnimationFrame to smooth out updates
+      resizeRafId.current = requestAnimationFrame(() => {
+        // Calculate new width based on mouse movement from start position
+        const deltaX = e.clientX - resizeStartX.current;
+        const newWidth = Math.max(400, Math.min(1200, resizeStartWidth.current + deltaX));
+        
+        // Update window size directly without triggering state update during drag
+        const window = getCurrentWindow();
+        const containerHeight = whiteContainer.scrollHeight;
+        const MAX_HEIGHT = 600;
+        const MIN_HEIGHT = 80;
+        const targetHeight = Math.max(MIN_HEIGHT, Math.min(containerHeight, MAX_HEIGHT));
+        
+        // Update container width directly for immediate visual feedback
+        whiteContainer.style.width = `${newWidth}px`;
+        
+        // Update window size
+        window.setSize(new LogicalSize(newWidth, targetHeight)).catch(console.error);
+      });
+    };
+
+    const handleMouseUp = () => {
+      // Cancel any pending animation frame
+      if (resizeRafId.current !== null) {
+        cancelAnimationFrame(resizeRafId.current);
+        resizeRafId.current = null;
+      }
+
+      // Get final width from container
+      const whiteContainer = document.querySelector('.bg-white') as HTMLElement;
+      if (whiteContainer) {
+        const finalWidth = whiteContainer.offsetWidth;
+        setWindowWidth(finalWidth);
+        localStorage.setItem('launcher-window-width', finalWidth.toString());
+      }
+
+      setIsResizing(false);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    return () => {
+      if (resizeRafId.current !== null) {
+        cancelAnimationFrame(resizeRafId.current);
+      }
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isResizing]);
 
   // Scroll selected item into view and adjust window size
   // 只在 selectedIndex 变化时滚动，避免在结果更新时意外滚动
@@ -1946,8 +2034,11 @@ export function LauncherWindow() {
       {/* Main Search Container - utools style */}
       {/* 当显示插件模态框时，隐藏搜索界面 */}
       {!(isMemoModalOpen || isPluginListModalOpen) && (
-      <div className="w-full flex justify-center">
-        <div className="bg-white w-full flex flex-col rounded-lg shadow-xl" style={{ minHeight: '80px' }}>
+      <div className="w-full flex justify-center relative">
+        <div 
+          className="bg-white flex flex-col rounded-lg shadow-xl" 
+          style={{ minHeight: '80px', width: `${windowWidth}px` }}
+        >
           {/* Search Box */}
           <div 
             className="px-6 py-4 border-b border-gray-100 flex-shrink-0"
@@ -2656,6 +2747,23 @@ export function LauncherWindow() {
             )}
           </div>
         </div>
+        {/* Resize Handle */}
+        <div
+          onMouseDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const whiteContainer = document.querySelector('.bg-white') as HTMLElement;
+            if (whiteContainer) {
+              resizeStartX.current = e.clientX;
+              resizeStartWidth.current = whiteContainer.offsetWidth;
+              setIsResizing(true);
+            }
+          }}
+          className={`absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-blue-400 transition-colors ${
+            isResizing ? 'bg-blue-500' : 'bg-transparent'
+          }`}
+          style={{ zIndex: 10 }}
+        />
       </div>
       )}
 
