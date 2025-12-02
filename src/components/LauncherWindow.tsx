@@ -716,6 +716,13 @@ export function LauncherWindow() {
       return;
     }
     
+    // If user is typing new content while in AI answer mode, exit AI answer mode
+    if (showAiAnswer) {
+      setShowAiAnswer(false);
+      setAiAnswer(null);
+      setIsAiLoading(false);
+    }
+    
     // Extract URLs from query
     const urls = extractUrls(query);
     setDetectedUrls(urls);
