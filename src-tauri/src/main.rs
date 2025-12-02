@@ -120,6 +120,34 @@ fn cleanup_lock_file() {
     let _ = std::fs::remove_file(&lock_file_path);
 }
 
+/// 设置 launcher 窗口位置（居中但稍微偏上）
+fn set_launcher_window_position(window: &tauri::WebviewWindow) {
+    use tauri::PhysicalPosition;
+    
+    // 获取窗口大小
+    if let Ok(size) = window.outer_size() {
+        let window_width = size.width as f64;
+        let window_height = size.height as f64;
+        
+        // 获取主显示器尺寸
+        if let Ok(monitor) = window.primary_monitor() {
+            if let Some(monitor) = monitor {
+                let monitor_size = monitor.size();
+                let monitor_width = monitor_size.width as f64;
+                let monitor_height = monitor_size.height as f64;
+                
+                // 计算居中位置，但向上偏移半个窗口高度
+                let x = (monitor_width - window_width) / 2.0;
+                let center_y = (monitor_height - window_height) / 2.0; // 居中位置
+                let y = center_y - window_height / 2.0; // 向上移动半个窗口高度
+                
+                // 设置窗口位置
+                let _ = window.set_position(PhysicalPosition::new(x as i32, y as i32));
+            }
+        }
+    }
+}
+
 fn main() {
     // 检查单实例
     if !check_single_instance() {
@@ -173,6 +201,7 @@ fn main() {
                                 if visible {
                                     let _ = window.hide();
                                 } else {
+                                    set_launcher_window_position(&window);
                                     let _ = window.show();
                                     let _ = window.set_focus();
                                 }
@@ -183,6 +212,7 @@ fn main() {
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show_launcher" => {
                         if let Some(window) = app.get_webview_window("launcher") {
+                            set_launcher_window_position(&window);
                             let _ = window.show();
                             let _ = window.set_focus();
                         }
@@ -276,6 +306,7 @@ fn main() {
                                         if visible {
                                             let _ = window.hide();
                                         } else {
+                                            set_launcher_window_position(&window);
                                             let _ = window.show();
                                             let _ = window.set_focus();
                                         }
@@ -372,6 +403,9 @@ fn main() {
             get_open_history,
             show_memo_window,
             show_plugin_list_window,
+            get_plugin_directory,
+            scan_plugin_directory,
+            read_plugin_manifest,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

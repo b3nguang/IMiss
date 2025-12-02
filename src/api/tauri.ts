@@ -219,5 +219,18 @@ export const tauriApi = {
   async showPluginListWindow(): Promise<void> {
     return invoke("show_plugin_list_window");
   },
+
+  // Plugin APIs
+  async getPluginDirectory(): Promise<string> {
+    return invoke("get_plugin_directory");
+  },
+
+  async scanPluginDirectory(directory: string): Promise<string[]> {
+    return invoke("scan_plugin_directory", { directory });
+  },
+
+  async readPluginManifest(pluginDir: string): Promise<string> {
+    return invoke("read_plugin_manifest", { pluginDir });
+  },
 };
 

@@ -1,0 +1,25 @@
+{
+  "id": "show_plugin_list",
+  "name": "显示插件列表",
+  "version": "1.0.0",
+  "description": "查看所有可用插件",
+  "keywords": [
+    "显示插件列表",
+    "插件列表",
+    "插件",
+    "列表",
+    "所有插件",
+    "xianshichajianliebiao",
+    "xscjlb",
+    "chajianliebiao",
+    "cjlb",
+    "chajian",
+    "cj",
+    "suoyouchajian",
+    "sycj",
+    "plugin"
+  ],
+  "entry": "./index.ts",
+  "enabled": true
+}
+

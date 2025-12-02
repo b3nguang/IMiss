@@ -1,0 +1,93 @@
+import type { Plugin } from "../../types";
+import { tauriApi } from "../../api/tauri";
+
+/**
+ * 创建内置插件列表
+ * 这些插件作为后备方案，如果动态加载失败，会使用这些定义
+ */
+export function createBuiltinPlugins(): Plugin[] {
+  return [
+    {
+      id: "show_main_window",
+      name: "录制动作",
+      description: "打开主程序窗口",
+      keywords: [
+        "录制动作",
+        "录制",
+        "主窗口",
+        "主程序",
+        "窗口",
+        "luzhidongzuo",
+        "lzdz",
+        "luzhi",
+        "lz",
+        "zhuchuangkou",
+        "zck",
+        "zhuchengxu",
+        "zcx",
+        "chuangkou",
+        "ck",
+        "main",
+      ],
+      execute: async (context) => {
+        await tauriApi.showMainWindow();
+        await context.hideLauncher();
+        context.setQuery("");
+        context.setSelectedIndex(0);
+      },
+    },
+    {
+      id: "memo_center",
+      name: "备忘录",
+      description: "查看和编辑已有的备忘录",
+      keywords: [
+        "备忘录",
+        "beiwanglu",
+        "bwl",
+        "memo",
+        "note",
+        "记录",
+        "jilu",
+        "jl",
+      ],
+      execute: async (context) => {
+        // 打开独立的备忘录窗口
+        if (context.tauriApi) {
+          await context.tauriApi.showMemoWindow();
+          // 关闭启动器
+          await context.hideLauncher();
+        }
+      },
+    },
+    {
+      id: "show_plugin_list",
+      name: "显示插件列表",
+      description: "查看所有可用插件",
+      keywords: [
+        "显示插件列表",
+        "插件列表",
+        "插件",
+        "列表",
+        "所有插件",
+        "xianshichajianliebiao",
+        "xscjlb",
+        "chajianliebiao",
+        "cjlb",
+        "chajian",
+        "cj",
+        "suoyouchajian",
+        "sycj",
+        "plugin",
+      ],
+      execute: async (context) => {
+        // 打开独立的插件列表窗口
+        if (context.tauriApi) {
+          await context.tauriApi.showPluginListWindow();
+          // 关闭启动器
+          await context.hideLauncher();
+        }
+      },
+    },
+  ];
+}
+

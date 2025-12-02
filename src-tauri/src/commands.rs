@@ -556,12 +556,41 @@ pub fn launch_application(app: app_search::AppInfo) -> Result<(), String> {
     app_search::windows::launch_app(&app)
 }
 
+/// 设置 launcher 窗口位置（居中但稍微偏上）
+fn set_launcher_window_position(window: &tauri::WebviewWindow) {
+    use tauri::PhysicalPosition;
+    
+    // 获取窗口大小
+    if let Ok(size) = window.outer_size() {
+        let window_width = size.width as f64;
+        let window_height = size.height as f64;
+        
+        // 获取主显示器尺寸
+        if let Ok(monitor) = window.primary_monitor() {
+            if let Some(monitor) = monitor {
+                let monitor_size = monitor.size();
+                let monitor_width = monitor_size.width as f64;
+                let monitor_height = monitor_size.height as f64;
+                
+                // 计算居中位置，但向上偏移半个窗口高度
+                let x = (monitor_width - window_width) / 2.0;
+                let center_y = (monitor_height - window_height) / 2.0; // 居中位置
+                let y = center_y - window_height / 2.0; // 向上移动半个窗口高度
+                
+                // 设置窗口位置
+                let _ = window.set_position(PhysicalPosition::new(x as i32, y as i32));
+            }
+        }
+    }
+}
+
 #[tauri::command]
 pub fn toggle_launcher(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("launcher") {
         if window.is_visible().unwrap_or(false) {
             let _ = window.hide();
         } else {
+            set_launcher_window_position(&window);
             let _ = window.show();
             let _ = window.set_focus();
         }
@@ -1837,4 +1866,52 @@ pub async fn show_plugin_list_window(app: tauri::AppHandle) -> Result<(), String
     }
 
     Ok(())
+}
+
+#[tauri::command]
+pub fn get_plugin_directory(app: tauri::AppHandle) -> Result<String, String> {
+    let app_data_dir = get_app_data_dir(&app)?;
+    let plugin_dir = app_data_dir.join("plugins");
+    
+    // 确保目录存在
+    if !plugin_dir.exists() {
+        fs::create_dir_all(&plugin_dir).map_err(|e| e.to_string())?;
+    }
+    
+    Ok(plugin_dir.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub fn scan_plugin_directory(directory: String) -> Result<Vec<String>, String> {
+    let path = PathBuf::from(directory);
+    if !path.exists() {
+        return Ok(vec![]);
+    }
+    
+    let mut plugin_dirs = Vec::new();
+    for entry in fs::read_dir(&path).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        if path.is_dir() {
+            // 检查是否有 manifest.json
+            if path.join("manifest.json").exists() {
+                plugin_dirs.push(path.to_string_lossy().to_string());
+            }
+        }
+    }
+    
+    Ok(plugin_dirs)
+}
+
+#[tauri::command]
+pub fn read_plugin_manifest(plugin_dir: String) -> Result<String, String> {
+    let manifest_path = PathBuf::from(plugin_dir).join("manifest.json");
+    if !manifest_path.exists() {
+        return Err("manifest.json not found".to_string());
+    }
+    
+    let content = fs::read_to_string(&manifest_path)
+        .map_err(|e| format!("Failed to read manifest: {}", e))?;
+    
+    Ok(content)
 }

@@ -1,105 +1,67 @@
+import { pluginRegistry } from "./registry";
 import type { Plugin, PluginContext } from "../types";
-import { tauriApi } from "../api/tauri";
+
+// 向后兼容：导出旧的 API
+export let plugins: Plugin[] = [];
+export let searchPlugins: (query: string) => Plugin[];
+export let getPluginById: (id: string) => Plugin | undefined;
+export let executePlugin: (
+  pluginId: string,
+  context: PluginContext
+) => Promise<void>;
+
+// 初始化状态
+let initializationPromise: Promise<void> | null = null;
 
 /**
- * 插件注册表
- * 所有插件都在这里定义和注册
+ * 初始化插件系统
+ * 这个函数应该在应用启动时调用
  */
-export const plugins: Plugin[] = [
-  {
-    id: "show_main_window",
-    name: "录制动作",
-    description: "打开主程序窗口",
-    keywords: [
-      "录制动作",
-      "录制",
-      "主窗口",
-      "主程序",
-      "窗口",
-      "luzhidongzuo",
-      "lzdz",
-      "luzhi",
-      "lz",
-      "zhuchuangkou",
-      "zck",
-      "zhuchengxu",
-      "zcx",
-      "chuangkou",
-      "ck",
-      "main",
-    ],
-    execute: async (context: PluginContext) => {
-      await tauriApi.showMainWindow();
-      await context.hideLauncher();
-      context.setQuery("");
-      context.setSelectedIndex(0);
-    },
-  },
-  {
-    id: "memo_center",
-    name: "备忘录",
-    description: "查看和编辑已有的备忘录",
-    keywords: [
-      "备忘录",
-      "beiwanglu",
-      "bwl",
-      "memo",
-      "note",
-      "记录",
-      "jilu",
-      "jl",
-    ],
-    execute: async (context: PluginContext) => {
-      // 打开独立的备忘录窗口
-      if (context.tauriApi) {
-        await context.tauriApi.showMemoWindow();
-        // 关闭启动器
-        await context.hideLauncher();
-      }
-    },
-  },
-  {
-    id: "show_plugin_list",
-    name: "显示插件列表",
-    description: "查看所有可用插件",
-    keywords: [
-      "显示插件列表",
-      "插件列表",
-      "插件",
-      "列表",
-      "所有插件",
-      "xianshichajianliebiao",
-      "xscjlb",
-      "chajianliebiao",
-      "cjlb",
-      "chajian",
-      "cj",
-      "suoyouchajian",
-      "sycj",
-      "plugin",
-    ],
-    execute: async (context: PluginContext) => {
-      // 打开独立的插件列表窗口
-      if (context.tauriApi) {
-        await context.tauriApi.showPluginListWindow();
-        // 关闭启动器
-        await context.hideLauncher();
-      }
-    },
-  },
-];
+export async function initializePlugins(): Promise<void> {
+  // 如果已经在初始化或已初始化，返回现有的 promise
+  if (initializationPromise) {
+    return initializationPromise;
+  }
 
-/**
- * 根据 ID 查找插件
- */
-export function getPluginById(id: string): Plugin | undefined {
-  return plugins.find((plugin) => plugin.id === id);
+  initializationPromise = (async () => {
+    try {
+      await pluginRegistry.initialize();
+
+      // 更新导出的函数和变量
+      plugins = pluginRegistry.getAllPlugins();
+      searchPlugins = (query: string) => pluginRegistry.searchPlugins(query);
+      getPluginById = (id: string) => pluginRegistry.getPluginById(id);
+      executePlugin = (pluginId: string, context: PluginContext) =>
+        pluginRegistry.executePlugin(pluginId, context);
+
+      console.log("Plugins initialized successfully");
+    } catch (error) {
+      console.error("Failed to initialize plugins:", error);
+      // 即使初始化失败，也提供基本的后备实现
+      plugins = [];
+      searchPlugins = () => [];
+      getPluginById = () => undefined;
+      executePlugin = async () => {
+        throw new Error("Plugin system not initialized");
+      };
+      throw error;
+    }
+  })();
+
+  return initializationPromise;
 }
 
-/**
- * 搜索插件（根据关键词匹配）
- */
-export function searchPlugins(query: string): Plugin[] {
+// 导出新的 API
+export { pluginRegistry };
+export type { LoadedPlugin, PluginManifest } from "./types";
+
+// 如果插件系统还没有初始化，提供一个同步的后备实现
+// 这确保了向后兼容性
+// 使用同步导入作为后备
+import { createBuiltinPlugins } from "./builtin";
+const builtinPlugins = createBuiltinPlugins();
+plugins = builtinPlugins;
+searchPlugins = (query: string) => {
   const lower = query.toLowerCase();
   return plugins.filter(
     (plugin) =>
@@ -107,25 +69,17 @@ export function searchPlugins(query: string): Plugin[] {
       plugin.description?.toLowerCase().includes(lower) ||
       plugin.keywords.some((keyword) => keyword.toLowerCase().includes(lower))
   );
-}
-
-/**
- * 执行插件
- */
-export async function executePlugin(
-  pluginId: string,
-  context: PluginContext
-): Promise<void> {
+};
+getPluginById = (id: string) => plugins.find((p) => p.id === id);
+executePlugin = async (pluginId: string, context: PluginContext) => {
   const plugin = getPluginById(pluginId);
   if (!plugin) {
     console.error(`Plugin not found: ${pluginId}`);
     return;
   }
-
   try {
     await plugin.execute(context);
   } catch (error) {
     console.error(`Failed to execute plugin ${pluginId}:`, error);
   }
-}
-
+};

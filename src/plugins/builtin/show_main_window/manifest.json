@@ -1,0 +1,27 @@
+{
+  "id": "show_main_window",
+  "name": "录制动作",
+  "version": "1.0.0",
+  "description": "打开主程序窗口",
+  "keywords": [
+    "录制动作",
+    "录制",
+    "主窗口",
+    "主程序",
+    "窗口",
+    "luzhidongzuo",
+    "lzdz",
+    "luzhi",
+    "lz",
+    "zhuchuangkou",
+    "zck",
+    "zhuchengxu",
+    "zcx",
+    "chuangkou",
+    "ck",
+    "main"
+  ],
+  "entry": "./index.ts",
+  "enabled": true
+}
+
