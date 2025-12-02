@@ -1,4 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
+import { flushSync } from "react-dom";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { tauriApi } from "../api/tauri";
 import type { AppInfo, FileHistoryItem, EverythingResult, MemoItem, PluginContext, SystemFolderItem } from "../types";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -8,7 +11,7 @@ import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { plugins, searchPlugins, executePlugin } from "../plugins";
 
 type SearchResult = {
-  type: "app" | "file" | "everything" | "url" | "memo" | "plugin" | "system_folder" | "history";
+  type: "app" | "file" | "everything" | "url" | "memo" | "plugin" | "system_folder" | "history" | "ai";
   app?: AppInfo;
   file?: FileHistoryItem;
   everything?: EverythingResult;
@@ -16,6 +19,7 @@ type SearchResult = {
   memo?: MemoItem;
   plugin?: { id: string; name: string; description?: string };
   systemFolder?: SystemFolderItem;
+  aiAnswer?: string;
   displayName: string;
   path: string;
 };
@@ -44,6 +48,8 @@ export function LauncherWindow() {
   const [isLoading, setIsLoading] = useState(false);
   const [isHoveringAiIcon, setIsHoveringAiIcon] = useState(false);
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const [aiAnswer, setAiAnswer] = useState<string | null>(null);
+  const [showAiAnswer, setShowAiAnswer] = useState(false); // 是否显示 AI 回答模式
   const [ollamaSettings, setOllamaSettings] = useState<{ model: string; base_url: string }>({
     model: "llama2",
     base_url: "http://localhost:11434",
@@ -368,6 +374,12 @@ export function LauncherWindow() {
           }, 100);
           return;
         }
+        // 如果正在显示 AI 回答，退出 AI 回答模式
+        if (showAiAnswer) {
+          setShowAiAnswer(false);
+          setAiAnswer(null);
+          return;
+        }
         try {
           await tauriApi.hideLauncher();
           setQuery("");
@@ -474,18 +486,25 @@ export function LauncherWindow() {
     .filter((url, index, self) => self.indexOf(url) === index); // Remove duplicates
   };
 
-  // Call Ollama API to ask AI
+  // Call Ollama API to ask AI (流式请求)
   const askOllama = async (prompt: string) => {
     if (!prompt.trim()) {
       return;
     }
 
+    // 清空之前的 AI 回答，并切换到 AI 回答模式
+    setAiAnswer('');
+    setShowAiAnswer(true);
     setIsAiLoading(true);
+    
+    let accumulatedAnswer = '';
+    let buffer = ''; // 用于处理不完整的行
+    
     try {
       const baseUrl = ollamaSettings.base_url || 'http://localhost:11434';
       const model = ollamaSettings.model || 'llama2';
       
-      // 尝试使用 chat API (更现代的方式)
+      // 尝试使用 chat API (流式)
       const response = await fetch(`${baseUrl}/api/chat`, {
         method: 'POST',
         headers: {
@@ -499,7 +518,7 @@ export function LauncherWindow() {
               content: prompt,
             },
           ],
-          stream: false,
+          stream: true,
         }),
       });
 
@@ -513,7 +532,7 @@ export function LauncherWindow() {
           body: JSON.stringify({
             model: model,
             prompt: prompt,
-            stream: false,
+            stream: true,
           }),
         });
 
@@ -521,29 +540,151 @@ export function LauncherWindow() {
           throw new Error(`Ollama API error: ${generateResponse.statusText}`);
         }
 
-        const generateData = await generateResponse.json();
-        const answer = generateData.response || '未收到响应';
-        setQuery(answer);
-        console.log('AI回答:', answer);
+        // 处理 generate API 的流式响应
+        const reader = generateResponse.body?.getReader();
+        const decoder = new TextDecoder();
+        
+        if (!reader) {
+          throw new Error('无法读取响应流');
+        }
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            // 处理剩余的 buffer
+            if (buffer.trim()) {
+              try {
+                const data = JSON.parse(buffer);
+                if (data.response) {
+                  accumulatedAnswer += data.response;
+                  flushSync(() => {
+                    setAiAnswer(accumulatedAnswer);
+                  });
+                }
+              } catch (e) {
+                console.warn('解析最后的数据失败:', e, buffer);
+              }
+            }
+            break;
+          }
+
+        const chunk = decoder.decode(value, { stream: true });
+        buffer += chunk;
+        const lines = buffer.split('\n');
+        
+        // 保留最后一个不完整的行
+        buffer = lines.pop() || '';
+
+        // 快速处理所有完整的行
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+          if (!trimmedLine) continue;
+          
+          try {
+            const data = JSON.parse(trimmedLine);
+            if (data.response) {
+              accumulatedAnswer += data.response;
+              // 立即更新 UI，不等待
+              flushSync(() => {
+                setAiAnswer(accumulatedAnswer);
+              });
+            }
+            if (data.done) {
+              setIsAiLoading(false);
+              flushSync(() => {
+                setAiAnswer(accumulatedAnswer);
+              });
+              return;
+            }
+          } catch (e) {
+            // 忽略解析错误，继续处理下一行
+            console.warn('解析流式数据失败:', e, trimmedLine);
+          }
+        }
+        
+        // 立即继续读取下一个 chunk，不阻塞
+        }
+        
+        setIsAiLoading(false);
+        setAiAnswer(accumulatedAnswer);
         return;
       }
 
-      const data = await response.json();
-      const answer = data.message?.content || data.response || '未收到响应';
+      // 处理 chat API 的流式响应
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
       
-      // 将AI的回答设置到搜索框中
-      setQuery(answer);
+      if (!reader) {
+        throw new Error('无法读取响应流');
+      }
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          // 处理剩余的 buffer
+          if (buffer.trim()) {
+            try {
+              const data = JSON.parse(buffer);
+              if (data.message?.content) {
+                accumulatedAnswer += data.message.content;
+                flushSync(() => {
+                  setAiAnswer(accumulatedAnswer);
+                });
+              }
+            } catch (e) {
+              console.warn('解析最后的数据失败:', e, buffer);
+            }
+          }
+          break;
+        }
+
+        const chunk = decoder.decode(value, { stream: true });
+        buffer += chunk;
+        const lines = buffer.split('\n');
+        
+        // 保留最后一个不完整的行
+        buffer = lines.pop() || '';
+
+        // 快速处理所有完整的行
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+          if (!trimmedLine) continue;
+          
+          try {
+            const data = JSON.parse(trimmedLine);
+            if (data.message?.content) {
+              accumulatedAnswer += data.message.content;
+              // 立即更新 UI，不等待
+              flushSync(() => {
+                setAiAnswer(accumulatedAnswer);
+              });
+            }
+            if (data.done) {
+              setIsAiLoading(false);
+              flushSync(() => {
+                setAiAnswer(accumulatedAnswer);
+              });
+              return;
+            }
+          } catch (e) {
+            // 忽略解析错误，继续处理下一行
+            console.warn('解析流式数据失败:', e, trimmedLine);
+          }
+        }
+        
+        // 立即继续读取下一个 chunk，不阻塞
+      }
       
-      console.log('AI回答:', answer);
+      setIsAiLoading(false);
+      setAiAnswer(accumulatedAnswer);
     } catch (error: any) {
       console.error('调用Ollama API失败:', error);
+      setIsAiLoading(false);
       // 显示错误提示
       const errorMessage = error.message || '未知错误';
       const baseUrl = ollamaSettings.base_url || 'http://localhost:11434';
       const model = ollamaSettings.model || 'llama2';
       alert(`调用AI失败: ${errorMessage}\n\n请确保:\n1. Ollama服务正在运行\n2. 已安装模型 (例如: ollama pull ${model})\n3. 服务地址为 ${baseUrl}`);
-    } finally {
-      setIsAiLoading(false);
     }
   };
 
@@ -564,6 +705,8 @@ export function LauncherWindow() {
       setEverythingTotalCount(null);
       setEverythingCurrentCount(0);
       setDetectedUrls([]);
+      setAiAnswer(null); // 清空 AI 回答
+      setShowAiAnswer(false); // 退出 AI 回答模式
       setResults([]);
       setSelectedIndex(0);
       setIsSearchingEverything(false);
@@ -643,8 +786,9 @@ export function LauncherWindow() {
   // Combine apps, files, Everything results, and URLs into results when they change
   // 使用 useMemo 优化，避免不必要的重新计算
   const combinedResults = useMemo(() => {
-    // 如果查询为空，直接返回空数组，不显示任何结果
-    if (query.trim() === "") {
+    // 如果查询为空且没有 AI 回答，直接返回空数组，不显示任何结果
+    // 如果有 AI 回答，即使查询为空也要显示
+    if (query.trim() === "" && !aiAnswer) {
       return [];
     }
     
@@ -663,6 +807,13 @@ export function LauncherWindow() {
     );
     
     const otherResults: SearchResult[] = [
+      // 如果有 AI 回答，将其添加到结果列表的最前面
+      ...(aiAnswer ? [{
+        type: "ai" as const,
+        aiAnswer: aiAnswer,
+        displayName: "AI 回答",
+        path: "ai://answer",
+      }] : []),
       // 如果查询匹配历史访问关键词，添加历史访问结果
       ...(shouldShowHistory ? [{
         type: "history" as const,
@@ -720,7 +871,7 @@ export function LauncherWindow() {
     
     // URLs always come first, then other results sorted by open history
     return [...urlResults, ...otherResults];
-  }, [filteredApps, filteredFiles, filteredMemos, filteredPlugins, systemFolders, everythingResults, detectedUrls, openHistory, query]);
+  }, [filteredApps, filteredFiles, filteredMemos, filteredPlugins, systemFolders, everythingResults, detectedUrls, openHistory, query, aiAnswer]);
 
   // 使用 ref 来跟踪当前的 query，避免闭包问题
   const queryRef = useRef(query);
@@ -736,8 +887,8 @@ export function LauncherWindow() {
       incrementalLoadRef.current = null;
     }
 
-    // 如果 query 为空，直接清空结果并返回
-    if (queryRef.current.trim() === "") {
+    // 如果 query 为空且没有结果（包括 AI 回答），直接清空结果并返回
+    if (queryRef.current.trim() === "" && allResults.length === 0) {
       setResults([]);
       return;
     }
@@ -746,8 +897,8 @@ export function LauncherWindow() {
     const INCREMENT = 50; // 每次增加50条
     const DELAY_MS = 16; // 每帧延迟（约60fps）
 
-    // 重置显示数量（但先检查 query 是否仍然有效）
-    if (queryRef.current.trim() !== "") {
+    // 重置显示数量（如果有结果就显示，即使查询为空）
+    if (allResults.length > 0) {
       setResults(allResults.slice(0, INITIAL_COUNT));
     } else {
       setResults([]);
@@ -756,11 +907,7 @@ export function LauncherWindow() {
 
     // 如果结果数量少于初始数量，直接返回
     if (allResults.length <= INITIAL_COUNT) {
-      if (queryRef.current.trim() !== "") {
-        setResults(allResults);
-      } else {
-        setResults([]);
-      }
+      setResults(allResults);
       return;
     }
 
@@ -805,8 +952,8 @@ export function LauncherWindow() {
   };
 
   useEffect(() => {
-    // 如果查询为空，直接清空结果
-    if (query.trim() === "") {
+    // 如果查询为空且没有 AI 回答，直接清空结果
+    if (query.trim() === "" && !aiAnswer) {
       setResults([]);
       if (incrementalLoadRef.current !== null) {
         cancelAnimationFrame(incrementalLoadRef.current);
@@ -1379,7 +1526,11 @@ export function LauncherWindow() {
         console.error("Failed to record open history:", error);
       }
 
-      if (result.type === "url" && result.url) {
+      if (result.type === "ai" && result.aiAnswer) {
+        // AI 回答点击时，可以复制到剪贴板或什么都不做
+        // 这里暂时不做任何操作，只是显示结果
+        return;
+      } else if (result.type === "url" && result.url) {
         await tauriApi.openUrl(result.url);
       } else if (result.type === "history") {
         // 打开历史访问窗口
@@ -1907,8 +2058,156 @@ export function LauncherWindow() {
             </div>
           </div>
 
-          {/* Results List */}
-          {results.length > 0 && (
+          {/* Results List or AI Answer */}
+          {showAiAnswer ? (
+            // AI 回答模式
+            <div className="flex-1 overflow-y-auto min-h-0" style={{ maxHeight: '500px' }}>
+              <div className="px-6 py-4">
+                {isAiLoading && !aiAnswer ? (
+                  // 只在完全没有内容时显示加载状态
+                  <div className="flex items-center justify-center py-12">
+                    <div className="flex flex-col items-center gap-3">
+                      <svg
+                        className="w-8 h-8 text-blue-500 animate-spin"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                        />
+                      </svg>
+                      <div className="text-gray-600">AI 正在思考中...</div>
+                    </div>
+                  </div>
+                ) : aiAnswer ? (
+                  // 显示 AI 回答（包括流式接收中的内容）
+                  <div className="bg-white rounded-lg border border-gray-200 p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-2">
+                        <svg
+                          className="w-5 h-5 text-blue-500"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                          />
+                          <circle cx="9" cy="9" r="1" fill="currentColor"/>
+                          <circle cx="15" cy="9" r="1" fill="currentColor"/>
+                        </svg>
+                        <h3 className="text-lg font-semibold text-gray-800">AI 回答</h3>
+                        {isAiLoading && (
+                          <svg
+                            className="w-4 h-4 text-blue-500 animate-spin ml-2"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                            />
+                          </svg>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => {
+                          setShowAiAnswer(false);
+                          setAiAnswer(null);
+                        }}
+                        className="text-gray-400 hover:text-gray-600 transition-colors"
+                        title="返回搜索结果"
+                      >
+                        <svg
+                          className="w-5 h-5"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M6 18L18 6M6 6l12 12"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                    <div className="text-gray-700 break-words leading-relaxed prose prose-sm max-w-none">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          // 自定义样式
+                          p: ({ children }: any) => <p className="mb-3 last:mb-0">{children}</p>,
+                          h1: ({ children }: any) => <h1 className="text-2xl font-bold mb-3 mt-4 first:mt-0">{children}</h1>,
+                          h2: ({ children }: any) => <h2 className="text-xl font-bold mb-2 mt-4 first:mt-0">{children}</h2>,
+                          h3: ({ children }: any) => <h3 className="text-lg font-semibold mb-2 mt-3 first:mt-0">{children}</h3>,
+                          ul: ({ children }: any) => <ul className="list-disc list-inside mb-3 space-y-1">{children}</ul>,
+                          ol: ({ children }: any) => <ol className="list-decimal list-inside mb-3 space-y-1">{children}</ol>,
+                          li: ({ children }: any) => <li className="ml-2">{children}</li>,
+                          code: ({ inline, children }: any) => 
+                            inline ? (
+                              <code className="bg-gray-100 px-1.5 py-0.5 rounded text-sm font-mono">{children}</code>
+                            ) : (
+                              <code className="block bg-gray-100 p-3 rounded text-sm font-mono overflow-x-auto mb-3">{children}</code>
+                            ),
+                          pre: ({ children }: any) => <pre className="mb-3">{children}</pre>,
+                          blockquote: ({ children }: any) => (
+                            <blockquote className="border-l-4 border-gray-300 pl-4 italic my-3">{children}</blockquote>
+                          ),
+                          table: ({ children }: any) => (
+                            <div className="overflow-x-auto mb-3">
+                              <table className="min-w-full border-collapse border border-gray-300">
+                                {children}
+                              </table>
+                            </div>
+                          ),
+                          thead: ({ children }: any) => <thead className="bg-gray-100">{children}</thead>,
+                          tbody: ({ children }: any) => <tbody>{children}</tbody>,
+                          tr: ({ children }: any) => <tr className="border-b border-gray-200">{children}</tr>,
+                          th: ({ children }: any) => (
+                            <th className="border border-gray-300 px-3 py-2 text-left font-semibold">
+                              {children}
+                            </th>
+                          ),
+                          td: ({ children }: any) => (
+                            <td className="border border-gray-300 px-3 py-2">{children}</td>
+                          ),
+                          strong: ({ children }: any) => <strong className="font-semibold">{children}</strong>,
+                          em: ({ children }: any) => <em className="italic">{children}</em>,
+                          a: ({ href, children }: any) => (
+                            <a href={href} className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer">
+                              {children}
+                            </a>
+                          ),
+                          hr: () => <hr className="my-4 border-gray-300" />,
+                        }}
+                      >
+                        {aiAnswer}
+                      </ReactMarkdown>
+                      {isAiLoading && (
+                        <span className="inline-block w-2 h-4 bg-blue-500 animate-pulse ml-1 align-middle" />
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-12 text-gray-500">
+                    暂无 AI 回答
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : results.length > 0 ? (
             <div
               ref={listRef}
               className="flex-1 overflow-y-auto min-h-0"
@@ -2026,6 +2325,24 @@ export function LauncherWindow() {
                             d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"
                           />
                         </svg>
+                      ) : result.type === "ai" ? (
+                        <svg
+                          className={`w-5 h-5 ${
+                            index === selectedIndex ? "text-white" : "text-blue-500"
+                          }`}
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                          />
+                          <circle cx="9" cy="9" r="1" fill="currentColor"/>
+                          <circle cx="15" cy="9" r="1" fill="currentColor"/>
+                        </svg>
                       ) : (result.type === "system_folder" && result.systemFolder?.is_folder) ||
                         (result.type === "file" &&
                           ((result.file?.is_folder ?? null) !== null
@@ -2087,7 +2404,22 @@ export function LauncherWindow() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="font-medium truncate">{result.displayName}</div>
-                      {result.path && result.type !== "memo" && result.type !== "history" && (
+                      {result.type === "ai" && result.aiAnswer && (
+                        <div
+                          className={`text-sm mt-1 ${
+                            index === selectedIndex ? "text-blue-100" : "text-gray-600"
+                          }`}
+                          style={{
+                            whiteSpace: "pre-wrap",
+                            wordBreak: "break-word",
+                            maxHeight: "200px",
+                            overflowY: "auto",
+                          }}
+                        >
+                          {result.aiAnswer}
+                        </div>
+                      )}
+                      {result.path && result.type !== "memo" && result.type !== "history" && result.type !== "ai" && (
                         <div
                           className={`text-sm truncate ${
                             index === selectedIndex ? "text-blue-100" : "text-gray-500"
@@ -2180,24 +2512,24 @@ export function LauncherWindow() {
                 </div>
               ))}
             </div>
-          )}
+          ) : null}
 
           {/* Loading or Empty State */}
-          {isLoading && (
+          {!showAiAnswer && isLoading && (
             <div className="px-6 py-8 text-center text-gray-500">
               <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-gray-400 mb-2"></div>
               <div>正在扫描应用...</div>
             </div>
           )}
 
-          {!isLoading && results.length === 0 && query && (
+          {!showAiAnswer && !isLoading && results.length === 0 && query && (
             <div className="px-6 py-8 text-center text-gray-500">
               未找到匹配的应用或文件
             </div>
           )}
 
           {/* Everything Search Status */}
-          {query.trim() && isEverythingAvailable && (
+          {!showAiAnswer && query.trim() && isEverythingAvailable && (
             <div className="px-6 py-2 border-t border-gray-200 bg-gray-50">
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between text-xs text-gray-600">
@@ -2254,7 +2586,7 @@ export function LauncherWindow() {
             </div>
           )}
 
-          {!isLoading && results.length === 0 && !query && (
+          {!showAiAnswer && !isLoading && results.length === 0 && !query && (
             <div className="px-6 py-8 text-center text-gray-400 text-sm">
               输入关键词搜索应用，或粘贴文件路径
             </div>
@@ -2263,7 +2595,8 @@ export function LauncherWindow() {
           {/* Footer */}
           <div className="px-6 py-2 border-t border-gray-100 text-xs text-gray-400 flex justify-between items-center bg-gray-50/50 flex-shrink-0">
             <div className="flex items-center gap-3">
-              {results.length > 0 && <span>{results.length} 个结果</span>}
+              {!showAiAnswer && results.length > 0 && <span>{results.length} 个结果</span>}
+              {showAiAnswer && <span>AI 回答模式</span>}
               <div className="flex items-center gap-2">
                 <div 
                   className="flex items-center gap-1 cursor-help" 
@@ -2315,8 +2648,11 @@ export function LauncherWindow() {
                 )}
               </div>
             </div>
-            {results.length > 0 && (
+            {!showAiAnswer && results.length > 0 && (
               <span>↑↓ 选择 · Enter 打开 · Esc 关闭</span>
+            )}
+            {showAiAnswer && (
+              <span>Esc 返回搜索结果</span>
             )}
           </div>
         </div>
