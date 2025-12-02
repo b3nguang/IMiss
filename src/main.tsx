@@ -4,6 +4,8 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import App from "./App";
 import LauncherApp from "./LauncherApp";
 import ShortcutsConfigApp from "./ShortcutsConfigApp";
+import MemoApp from "./MemoApp";
+import PluginListApp from "./PluginListApp";
 import "./styles.css";
 
 // Determine which app to render based on window label
@@ -28,6 +30,18 @@ function initApp() {
       ReactDOM.createRoot(root).render(
         <StrictMode>
           <ShortcutsConfigApp />
+        </StrictMode>
+      );
+    } else if (label === "memo-window") {
+      ReactDOM.createRoot(root).render(
+        <StrictMode>
+          <MemoApp />
+        </StrictMode>
+      );
+    } else if (label === "plugin-list-window") {
+      ReactDOM.createRoot(root).render(
+        <StrictMode>
+          <PluginListApp />
         </StrictMode>
       );
     } else {

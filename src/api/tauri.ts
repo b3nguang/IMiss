@@ -211,5 +211,13 @@ export const tauriApi = {
   async getOpenHistory(): Promise<Record<string, number>> {
     return invoke("get_open_history");
   },
+
+  async showMemoWindow(): Promise<void> {
+    return invoke("show_memo_window");
+  },
+
+  async showPluginListWindow(): Promise<void> {
+    return invoke("show_plugin_list_window");
+  },
 };
 

@@ -236,19 +236,12 @@ export function LauncherWindow() {
     const adjustWindowForMemoModal = () => {
       const window = getCurrentWindow();
       
-      // Get the main container width to maintain consistent width
-      const whiteContainer = document.querySelector('.bg-white');
-      const containerWidth = whiteContainer ? whiteContainer.scrollWidth : 600;
-      // Limit max width to prevent window from being too wide
-      const maxWidth = 600;
-      const targetWidth = Math.min(containerWidth, maxWidth);
-      
-      // Set a fixed height that's large enough to display the modal properly
-      // The modal has max-h-[90vh], so we set window height to accommodate that
-      // Use a fixed height that ensures the modal is fully visible
-      const targetHeight = 700; // Fixed height to ensure modal is fully visible
+      // 当显示模态框时，设置窗口大小并居中，让插件像独立软件一样运行
+      const targetWidth = 700; // 固定宽度
+      const targetHeight = 700; // 固定高度，确保模态框完全可见
       
       window.setSize(new LogicalSize(targetWidth, targetHeight)).catch(console.error);
+      window.center().catch(console.error);
     };
 
     // Wait for modal to render, use double requestAnimationFrame for accurate measurement
@@ -266,12 +259,8 @@ export function LauncherWindow() {
     const adjustWindowForPluginListModal = () => {
       const window = getCurrentWindow();
       
-      // Get the main container width to maintain consistent width
-      const whiteContainer = document.querySelector('.bg-white');
-      const containerWidth = whiteContainer ? whiteContainer.scrollWidth : 600;
-      // Limit max width to prevent window from being too wide
-      const maxWidth = 600;
-      const targetWidth = Math.min(containerWidth, maxWidth);
+      // 当显示模态框时，设置窗口大小并居中，让插件像独立软件一样运行
+      const targetWidth = 700; // 固定宽度
       
       // Calculate height based on number of plugins
       // Each plugin card is approximately 120-150px tall (including padding and margins)
@@ -286,6 +275,7 @@ export function LauncherWindow() {
       const targetHeight = Math.max(minHeight, Math.min(calculatedHeight, maxHeight));
       
       window.setSize(new LogicalSize(targetWidth, targetHeight)).catch(console.error);
+      window.center().catch(console.error);
     };
 
     // Wait for modal to render, use double requestAnimationFrame for accurate measurement
@@ -326,14 +316,30 @@ export function LauncherWindow() {
       if (e.key === "Escape" || e.keyCode === 27) {
         e.preventDefault();
         e.stopPropagation();
-        // 如果插件列表弹窗已打开，优先关闭插件列表，而不是隐藏整个界面
+        // 如果插件列表弹窗已打开，关闭插件列表并隐藏窗口（插件像独立软件一样运行）
         if (isPluginListModalOpenRef.current) {
           setIsPluginListModalOpen(false);
+          // 延迟隐藏窗口，让关闭动画完成
+          setTimeout(async () => {
+            try {
+              await tauriApi.hideLauncher();
+            } catch (error) {
+              console.error("Failed to hide window:", error);
+            }
+          }, 100);
           return;
         }
-        // 如果备忘录弹窗已打开，优先关闭备忘录插件，而不是隐藏整个界面
+        // 如果备忘录弹窗已打开，关闭备忘录并隐藏窗口（插件像独立软件一样运行）
         if (isMemoModalOpenRef.current) {
           resetMemoState();
+          // 延迟隐藏窗口，让关闭动画完成
+          setTimeout(async () => {
+            try {
+              await tauriApi.hideLauncher();
+            } catch (error) {
+              console.error("Failed to hide window:", error);
+            }
+          }, 100);
           return;
         }
         try {
@@ -1074,6 +1080,9 @@ export function LauncherWindow() {
         };
         
         await executePlugin(result.plugin.id, pluginContext);
+        // 插件执行后清理状态
+        setQuery("");
+        setSelectedIndex(0);
         return;
       }
       // Hide launcher window after launch
@@ -1310,14 +1319,30 @@ export function LauncherWindow() {
     if (e.key === "Escape" || e.keyCode === 27) {
       e.preventDefault();
       e.stopPropagation();
-      // 如果插件列表弹窗已打开，优先关闭插件列表，而不是隐藏整个界面
+      // 如果插件列表弹窗已打开，关闭插件列表并隐藏窗口（插件像独立软件一样运行）
       if (isPluginListModalOpen) {
         setIsPluginListModalOpen(false);
+        // 延迟隐藏窗口，让关闭动画完成
+        setTimeout(async () => {
+          try {
+            await tauriApi.hideLauncher();
+          } catch (error) {
+            console.error("Failed to hide window:", error);
+          }
+        }, 100);
         return;
       }
-      // 如果备忘录弹窗已打开，优先关闭备忘录插件，而不是隐藏整个界面
+      // 如果备忘录弹窗已打开，关闭备忘录并隐藏窗口（插件像独立软件一样运行）
       if (isMemoModalOpen) {
         resetMemoState();
+        // 延迟隐藏窗口，让关闭动画完成
+        setTimeout(async () => {
+          try {
+            await tauriApi.hideLauncher();
+          } catch (error) {
+            console.error("Failed to hide window:", error);
+          }
+        }, 100);
         return;
       }
       try {
@@ -1382,14 +1407,30 @@ export function LauncherWindow() {
         if (e.key === "Escape" || e.keyCode === 27) {
           e.preventDefault();
           e.stopPropagation();
-          // 如果插件列表弹窗已打开，优先关闭插件列表，而不是隐藏整个界面
+          // 如果插件列表弹窗已打开，关闭插件列表并隐藏窗口（插件像独立软件一样运行）
           if (isPluginListModalOpen) {
             setIsPluginListModalOpen(false);
+            // 延迟隐藏窗口，让关闭动画完成
+            setTimeout(async () => {
+              try {
+                await tauriApi.hideLauncher();
+              } catch (error) {
+                console.error("Failed to hide window:", error);
+              }
+            }, 100);
             return;
           }
-          // 如果备忘录弹窗已打开，优先关闭备忘录插件，而不是隐藏整个界面
+          // 如果备忘录弹窗已打开，关闭备忘录并隐藏窗口（插件像独立软件一样运行）
           if (isMemoModalOpen) {
             resetMemoState();
+            // 延迟隐藏窗口，让关闭动画完成
+            setTimeout(async () => {
+              try {
+                await tauriApi.hideLauncher();
+              } catch (error) {
+                console.error("Failed to hide window:", error);
+              }
+            }, 100);
             return;
           }
           try {
@@ -1405,6 +1446,8 @@ export function LauncherWindow() {
       }}
     >
       {/* Main Search Container - utools style */}
+      {/* 当显示插件模态框时，隐藏搜索界面 */}
+      {!(isMemoModalOpen || isPluginListModalOpen) && (
       <div className="w-full flex justify-center">
         <div className="bg-white w-full overflow-hidden" style={{ height: 'auto' }}>
           {/* Search Box */}
@@ -1945,6 +1988,7 @@ export function LauncherWindow() {
           </div>
         </div>
       </div>
+      )}
 
       {/* Download Modal */}
       {showDownloadModal && (
@@ -2150,13 +2194,21 @@ export function LauncherWindow() {
                   </button>
                 )}
                 <button
-                  onClick={() => {
+                  onClick={async () => {
                     if (isMemoListMode) {
-                      // 列表模式：直接关闭
+                      // 列表模式：关闭并隐藏窗口（插件像独立软件一样运行）
                       setIsMemoModalOpen(false);
                       setIsMemoListMode(true);
                       setSelectedMemo(null);
                       setIsEditingMemo(false);
+                      // 延迟隐藏窗口，让关闭动画完成
+                      setTimeout(async () => {
+                        try {
+                          await tauriApi.hideLauncher();
+                        } catch (error) {
+                          console.error("Failed to hide window:", error);
+                        }
+                      }, 100);
                     } else if (isEditingMemo && !selectedMemo) {
                       // 新建模式：返回列表
                       setIsMemoListMode(true);
@@ -2446,8 +2498,16 @@ export function LauncherWindow() {
             <div className="flex items-center justify-between p-4 border-b border-gray-200 flex-shrink-0">
               <h2 className="text-lg font-semibold text-gray-800">插件列表</h2>
               <button
-                onClick={() => {
+                onClick={async () => {
                   setIsPluginListModalOpen(false);
+                  // 延迟隐藏窗口，让关闭动画完成（插件像独立软件一样运行）
+                  setTimeout(async () => {
+                    try {
+                      await tauriApi.hideLauncher();
+                    } catch (error) {
+                      console.error("Failed to hide window:", error);
+                    }
+                  }, 100);
                 }}
                 className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded transition-colors"
               >

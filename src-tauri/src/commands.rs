@@ -1785,3 +1785,57 @@ pub fn get_open_history(app: tauri::AppHandle) -> Result<std::collections::HashM
     let app_data_dir = get_app_data_dir(&app)?;
     open_history::get_all_history(&app_data_dir)
 }
+
+#[tauri::command]
+pub async fn show_memo_window(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+
+    // 尝试获取现有窗口
+    if let Some(window) = app.get_webview_window("memo-window") {
+        window.show().map_err(|e| e.to_string())?;
+        window.set_focus().map_err(|e| e.to_string())?;
+    } else {
+        // 动态创建窗口
+        let window = tauri::WebviewWindowBuilder::new(
+            &app,
+            "memo-window",
+            tauri::WebviewUrl::App("index.html".into()),
+        )
+        .title("备忘录")
+        .inner_size(700.0, 700.0)
+        .resizable(true)
+        .min_inner_size(500.0, 400.0)
+        .center()
+        .build()
+        .map_err(|e| format!("创建备忘录窗口失败: {}", e))?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn show_plugin_list_window(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+
+    // 尝试获取现有窗口
+    if let Some(window) = app.get_webview_window("plugin-list-window") {
+        window.show().map_err(|e| e.to_string())?;
+        window.set_focus().map_err(|e| e.to_string())?;
+    } else {
+        // 动态创建窗口
+        let window = tauri::WebviewWindowBuilder::new(
+            &app,
+            "plugin-list-window",
+            tauri::WebviewUrl::App("index.html".into()),
+        )
+        .title("插件列表")
+        .inner_size(700.0, 600.0)
+        .resizable(true)
+        .min_inner_size(500.0, 400.0)
+        .center()
+        .build()
+        .map_err(|e| format!("创建插件列表窗口失败: {}", e))?;
+    }
+
+    Ok(())
+}

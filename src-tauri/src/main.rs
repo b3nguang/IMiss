@@ -370,6 +370,8 @@ fn main() {
             open_url,
             record_open_history,
             get_open_history,
+            show_memo_window,
+            show_plugin_list_window,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

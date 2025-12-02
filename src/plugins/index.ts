@@ -49,25 +49,12 @@ export const plugins: Plugin[] = [
       "jilu",
       "jl",
     ],
-    execute: (context: PluginContext) => {
-      // 打开备忘录中心：列表模式
-      if (context.setIsMemoListMode) {
-        context.setIsMemoListMode(true);
-      }
-      if (context.setSelectedMemo) {
-        context.setSelectedMemo(null);
-      }
-      if (context.setMemoEditTitle) {
-        context.setMemoEditTitle("");
-      }
-      if (context.setMemoEditContent) {
-        context.setMemoEditContent("");
-      }
-      if (context.setIsEditingMemo) {
-        context.setIsEditingMemo(false);
-      }
-      if (context.setIsMemoModalOpen) {
-        context.setIsMemoModalOpen(true);
+    execute: async (context: PluginContext) => {
+      // 打开独立的备忘录窗口
+      if (context.tauriApi) {
+        await context.tauriApi.showMemoWindow();
+        // 关闭启动器
+        await context.hideLauncher();
       }
     },
   },
@@ -91,10 +78,12 @@ export const plugins: Plugin[] = [
       "sycj",
       "plugin",
     ],
-    execute: (context: PluginContext) => {
-      // 显示插件列表
-      if (context.setIsPluginListModalOpen) {
-        context.setIsPluginListModalOpen(true);
+    execute: async (context: PluginContext) => {
+      // 打开独立的插件列表窗口
+      if (context.tauriApi) {
+        await context.tauriApi.showPluginListWindow();
+        // 关闭启动器
+        await context.hideLauncher();
       }
     },
   },
