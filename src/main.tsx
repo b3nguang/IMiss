@@ -7,6 +7,7 @@ import ShortcutsConfigApp from "./ShortcutsConfigApp";
 import MemoApp from "./MemoApp";
 import PluginListApp from "./PluginListApp";
 import SettingsApp from "./SettingsApp";
+import JsonFormatterApp from "./JsonFormatterApp";
 import { initializePlugins } from "./plugins";
 import "./styles.css";
 
@@ -83,6 +84,13 @@ async function initApp() {
         </StrictMode>
       );
       console.log("[初始化] SettingsApp 已渲染");
+    } else if (label === "json-formatter-window") {
+      ReactDOM.createRoot(root).render(
+        <StrictMode>
+          <JsonFormatterApp />
+        </StrictMode>
+      );
+      console.log("[初始化] JsonFormatterApp 已渲染");
     } else {
       ReactDOM.createRoot(root).render(
         <StrictMode>

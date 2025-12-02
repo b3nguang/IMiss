@@ -225,6 +225,10 @@ export const tauriApi = {
     return invoke("show_plugin_list_window");
   },
 
+  async showJsonFormatterWindow(): Promise<void> {
+    return invoke("show_json_formatter_window");
+  },
+
   // Plugin APIs
   async getPluginDirectory(): Promise<string> {
     return invoke("get_plugin_directory");

@@ -11,7 +11,7 @@ import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { plugins, searchPlugins, executePlugin } from "../plugins";
 
 type SearchResult = {
-  type: "app" | "file" | "everything" | "url" | "memo" | "plugin" | "system_folder" | "history" | "ai";
+  type: "app" | "file" | "everything" | "url" | "memo" | "plugin" | "system_folder" | "history" | "ai" | "json_formatter";
   app?: AppInfo;
   file?: FileHistoryItem;
   everything?: EverythingResult;
@@ -20,6 +20,7 @@ type SearchResult = {
   plugin?: { id: string; name: string; description?: string };
   systemFolder?: SystemFolderItem;
   aiAnswer?: string;
+  jsonContent?: string;
   displayName: string;
   path: string;
 };
@@ -55,6 +56,7 @@ export function LauncherWindow() {
     base_url: "http://localhost:11434",
   });
   const [detectedUrls, setDetectedUrls] = useState<string[]>([]);
+  const [detectedJson, setDetectedJson] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; result: SearchResult } | null>(null);
   const [selectedMemo, setSelectedMemo] = useState<MemoItem | null>(null);
   const [isMemoModalOpen, setIsMemoModalOpen] = useState(false);
@@ -489,6 +491,26 @@ export function LauncherWindow() {
     .filter((url, index, self) => self.indexOf(url) === index); // Remove duplicates
   };
 
+  // Check if text is valid JSON
+  const isValidJson = (text: string): boolean => {
+    if (!text || text.trim().length === 0) return false;
+    
+    const trimmed = text.trim();
+    
+    // Quick check: JSON should start with { or [
+    if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+      return false;
+    }
+    
+    // Try to parse as JSON
+    try {
+      JSON.parse(trimmed);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   // Call Ollama API to ask AI (流式请求)
   const askOllama = async (prompt: string) => {
     if (!prompt.trim()) {
@@ -708,6 +730,7 @@ export function LauncherWindow() {
       setEverythingTotalCount(null);
       setEverythingCurrentCount(0);
       setDetectedUrls([]);
+      setDetectedJson(null);
       setAiAnswer(null); // 清空 AI 回答
       setShowAiAnswer(false); // 退出 AI 回答模式
       setResults([]);
@@ -726,6 +749,13 @@ export function LauncherWindow() {
     // Extract URLs from query
     const urls = extractUrls(query);
     setDetectedUrls(urls);
+    
+    // Check if query is valid JSON
+    if (isValidJson(query)) {
+      setDetectedJson(query.trim());
+    } else {
+      setDetectedJson(null);
+    }
     
     // Debounce search to avoid too many requests
     const timeoutId = setTimeout(() => {
@@ -809,6 +839,14 @@ export function LauncherWindow() {
       path: url,
     }));
     
+    // JSON 格式化选项
+    const jsonFormatterResult: SearchResult[] = detectedJson ? [{
+      type: "json_formatter" as const,
+      jsonContent: detectedJson,
+      displayName: "打开 JSON 格式化查看器",
+      path: "json://formatter",
+    }] : [];
+    
     // 检查是否应该显示"历史访问"结果（只在明确搜索相关关键词时显示）
     const lowerQuery = query.toLowerCase().trim();
     const historyKeywords = ["历史访问", "历史", "访问历史", "ls", "history"];
@@ -879,9 +917,9 @@ export function LauncherWindow() {
       return bTime - aTime;
     });
     
-    // URLs always come first, then other results sorted by open history
-    return [...urlResults, ...otherResults];
-  }, [filteredApps, filteredFiles, filteredMemos, filteredPlugins, systemFolders, everythingResults, detectedUrls, openHistory, query, aiAnswer]);
+    // URLs always come first, then JSON formatter, then other results sorted by open history
+    return [...urlResults, ...jsonFormatterResult, ...otherResults];
+  }, [filteredApps, filteredFiles, filteredMemos, filteredPlugins, systemFolders, everythingResults, detectedUrls, detectedJson, openHistory, query, aiAnswer]);
 
   // 使用 ref 来跟踪当前的 query，避免闭包问题
   const queryRef = useRef(query);
@@ -1623,6 +1661,24 @@ export function LauncherWindow() {
         return;
       } else if (result.type === "url" && result.url) {
         await tauriApi.openUrl(result.url);
+      } else if (result.type === "json_formatter" && result.jsonContent) {
+        // 打开 JSON 格式化窗口并传递 JSON 内容
+        await tauriApi.showJsonFormatterWindow();
+        // 使用事件传递 JSON 内容到格式化窗口
+        // 延迟发送事件，确保窗口已创建并准备好接收事件
+        setTimeout(async () => {
+          try {
+            const { emit } = await import("@tauri-apps/api/event");
+            await emit("json-formatter:set-content", result.jsonContent);
+          } catch (error) {
+            console.error("Failed to send JSON content to formatter window:", error);
+          }
+        }, 300);
+        // 关闭启动器
+        await tauriApi.hideLauncher();
+        setQuery("");
+        setSelectedIndex(0);
+        return;
       } else if (result.type === "history") {
         // 打开历史访问窗口
         await tauriApi.showShortcutsConfig();
@@ -2437,6 +2493,22 @@ export function LauncherWindow() {
                           <circle cx="9" cy="9" r="1" fill="currentColor"/>
                           <circle cx="15" cy="9" r="1" fill="currentColor"/>
                         </svg>
+                      ) : result.type === "json_formatter" ? (
+                        <svg
+                          className={`w-5 h-5 ${
+                            index === selectedIndex ? "text-white" : "text-indigo-500"
+                          }`}
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
+                          />
+                        </svg>
                       ) : (result.type === "system_folder" && result.systemFolder?.is_folder) ||
                         (result.type === "file" &&
                           ((result.file?.is_folder ?? null) !== null
@@ -2560,6 +2632,20 @@ export function LauncherWindow() {
                             title="可打开的 URL"
                           >
                             URL
+                          </span>
+                        </div>
+                      )}
+                      {result.type === "json_formatter" && (
+                        <div className="flex items-center gap-2 mt-1">
+                          <span
+                            className={`text-xs px-2 py-0.5 rounded ${
+                              index === selectedIndex
+                                ? "bg-indigo-400 text-white"
+                                : "bg-indigo-100 text-indigo-700"
+                            }`}
+                            title="JSON 格式化查看器"
+                          >
+                            JSON
                           </span>
                         </div>
                       )}

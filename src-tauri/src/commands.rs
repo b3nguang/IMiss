@@ -1966,6 +1966,33 @@ pub async fn show_plugin_list_window(app: tauri::AppHandle) -> Result<(), String
 }
 
 #[tauri::command]
+pub async fn show_json_formatter_window(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+
+    // 尝试获取现有窗口
+    if let Some(window) = app.get_webview_window("json-formatter-window") {
+        window.show().map_err(|e| e.to_string())?;
+        window.set_focus().map_err(|e| e.to_string())?;
+    } else {
+        // 动态创建窗口
+        let window = tauri::WebviewWindowBuilder::new(
+            &app,
+            "json-formatter-window",
+            tauri::WebviewUrl::App("index.html".into()),
+        )
+        .title("JSON 格式化查看器")
+        .inner_size(900.0, 700.0)
+        .resizable(true)
+        .min_inner_size(600.0, 500.0)
+        .center()
+        .build()
+        .map_err(|e| format!("创建 JSON 格式化窗口失败: {}", e))?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
 pub fn get_plugin_directory(app: tauri::AppHandle) -> Result<String, String> {
     let app_data_dir = get_app_data_dir(&app)?;
     let plugin_dir = app_data_dir.join("plugins");

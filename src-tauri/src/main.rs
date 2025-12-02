@@ -479,6 +479,7 @@ fn main() {
             get_open_history,
             show_memo_window,
             show_plugin_list_window,
+            show_json_formatter_window,
             get_plugin_directory,
             scan_plugin_directory,
             read_plugin_manifest,

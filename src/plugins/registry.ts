@@ -93,6 +93,7 @@ export class PluginRegistry {
       show_main_window: "plugins/builtin/show_main_window",
       memo_center: "plugins/builtin/memo_center",
       show_plugin_list: "plugins/builtin/show_plugin_list",
+      json_formatter: "plugins/builtin/json_formatter",
     };
     return pathMap[pluginId] || null;
   }

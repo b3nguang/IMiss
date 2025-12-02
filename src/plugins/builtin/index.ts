@@ -88,6 +88,36 @@ export function createBuiltinPlugins(): Plugin[] {
         }
       },
     },
+    {
+      id: "json_formatter",
+      name: "JSON 格式化查看",
+      description: "格式化、压缩和验证 JSON 数据",
+      keywords: [
+        "JSON",
+        "格式化",
+        "json",
+        "geshihua",
+        "gsh",
+        "格式化查看",
+        "geshihuachakan",
+        "gshck",
+        "json格式化",
+        "json查看",
+        "json验证",
+        "json压缩",
+        "formatter",
+        "validator",
+        "minify",
+      ],
+      execute: async (context) => {
+        // 打开独立的 JSON 格式化窗口
+        if (context.tauriApi) {
+          await context.tauriApi.showJsonFormatterWindow();
+          // 关闭启动器
+          await context.hideLauncher();
+        }
+      },
+    },
   ];
 }
 
