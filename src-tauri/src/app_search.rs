@@ -21,6 +21,7 @@ pub mod windows {
     use base64::Engine;
     use pinyin::ToPinyin;
     use std::env;
+    use std::os::windows::process::CommandExt;
 
     // Cache file name
     pub fn get_cache_file_path(app_data_dir: &Path) -> PathBuf {
@@ -260,6 +261,7 @@ try {
                 "-PathBase64",
                 &path_base64,
             ])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW - 隐藏 PowerShell 窗口
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .output()
@@ -435,6 +437,7 @@ public class IconExtractor {
                 "-LnkPathBase64",
                 &path_base64,
             ])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW - 隐藏 PowerShell 窗口
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .output()
@@ -469,6 +472,7 @@ public class IconExtractor {
                 "-Command",
                 &ps_command,
             ])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW - 隐藏 PowerShell 窗口
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .output()

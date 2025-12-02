@@ -899,6 +899,7 @@ pub async fn download_es_exe(app: tauri::AppHandle) -> Result<String, String> {
     {
         use std::fs::File;
         use std::io::Write;
+        use std::os::windows::process::CommandExt;
 
         // First, find Everything installation directory
         let everything_dir = find_everything_installation_dir().ok_or_else(|| {
@@ -991,6 +992,7 @@ pub async fn download_es_exe(app: tauri::AppHandle) -> Result<String, String> {
                     temp_dir.to_string_lossy()
                 ),
             ])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW - 隐藏 PowerShell 窗口
             .output();
 
         // Clean up zip file
@@ -1092,6 +1094,7 @@ pub async fn download_es_exe(app: tauri::AppHandle) -> Result<String, String> {
                             batch_script.to_string_lossy().replace('\\', "\\\\")
                         )
                     ])
+                    .creation_flags(0x08000000) // CREATE_NO_WINDOW - 隐藏 PowerShell 窗口
                     .output();
 
                 // Clean up batch script
@@ -1135,6 +1138,7 @@ async fn download_es_exe_direct(
     use futures_util::StreamExt;
     use std::fs::File;
     use std::io::Write;
+    use std::os::windows::process::CommandExt;
 
     // Download to temp directory first (no permission issues)
     let temp_dir = std::env::temp_dir();
@@ -1254,6 +1258,7 @@ async fn download_es_exe_direct(
                             batch_script.to_string_lossy().replace('\\', "\\\\")
                         )
                     ])
+                    .creation_flags(0x08000000) // CREATE_NO_WINDOW - 隐藏 PowerShell 窗口
                     .output();
 
             // Clean up batch script

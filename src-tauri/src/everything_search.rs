@@ -73,6 +73,7 @@ pub mod windows {
     use std::fs::{File, OpenOptions};
     use std::io::Write;
     use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::process::CommandExt;
     use std::path::PathBuf;
     use std::ptr;
     use std::sync::mpsc;
@@ -986,6 +987,7 @@ pub mod windows {
 
         match std::process::Command::new("powershell")
             .args(&["-NoProfile", "-NonInteractive", "-Command", &ps_command])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW - 隐藏 PowerShell 窗口
             .output()
         {
             Ok(output) => {
