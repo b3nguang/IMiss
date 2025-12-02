@@ -1229,10 +1229,6 @@ export function LauncherWindow() {
     }
   };
 
-  const rescanApplications = async () => {
-    await loadApplications(true);
-  };
-
   const searchApplications = async (searchQuery: string) => {
     try {
       // Don't search if query is empty

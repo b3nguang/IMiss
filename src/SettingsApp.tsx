@@ -96,17 +96,16 @@ function SettingsApp() {
         });
 
         if (!generateResponse.ok) {
-          const errorText = await generateResponse.text();
           throw new Error(`API 请求失败: ${generateResponse.status} ${generateResponse.statusText}`);
         }
 
-        const data = await generateResponse.json();
+        await generateResponse.json();
         setTestResult({
           success: true,
           message: `连接成功！模型 "${model}" 可用。`,
         });
       } else {
-        const data = await response.json();
+        await response.json();
         setTestResult({
           success: true,
           message: `连接成功！模型 "${model}" 可用。`,
