@@ -338,6 +338,8 @@ fn main() {
                         }
                     }
                     "restart" => {
+                        // 清理锁文件，以便重启后新实例可以正常启动
+                        cleanup_lock_file();
                         app.restart();
                     }
                     "quit" => {

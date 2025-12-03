@@ -37,13 +37,9 @@ export async function initializePlugins(): Promise<void> {
       console.log("Plugins initialized successfully");
     } catch (error) {
       console.error("Failed to initialize plugins:", error);
-      // 即使初始化失败，也提供基本的后备实现
-      plugins = [];
-      searchPlugins = () => [];
-      getPluginById = () => undefined;
-      executePlugin = async () => {
-        throw new Error("Plugin system not initialized");
-      };
+      // 即使初始化失败，也使用后备实现（使用内置插件）
+      // 不要清空 plugins，保持后备实现
+      // searchPlugins 等函数已经在文件底部定义为后备实现，不需要重新赋值
       throw error;
     }
   })();
@@ -63,12 +59,14 @@ const builtinPlugins = createBuiltinPlugins();
 plugins = builtinPlugins;
 searchPlugins = (query: string) => {
   const lower = query.toLowerCase();
-  return plugins.filter(
+  const results = plugins.filter(
     (plugin) =>
       plugin.name.toLowerCase().includes(lower) ||
       plugin.description?.toLowerCase().includes(lower) ||
       plugin.keywords.some((keyword) => keyword.toLowerCase().includes(lower))
   );
+  console.log(`[Plugin Search Fallback] Query: "${query}", Total plugins: ${plugins.length}, Results: ${results.length}`);
+  return results;
 };
 getPluginById = (id: string) => plugins.find((p) => p.id === id);
 executePlugin = async (pluginId: string, context: PluginContext) => {

@@ -112,7 +112,20 @@ export class PluginRegistry {
         execute: p.execute,
       }));
 
-    return [...this.builtinPlugins, ...loadedPlugins];
+    // 合并内置插件和已加载的插件，去重（如果插件已加载，优先使用已加载的版本）
+    const pluginMap = new Map<string, Plugin>();
+    
+    // 先添加内置插件
+    for (const plugin of this.builtinPlugins) {
+      pluginMap.set(plugin.id, plugin);
+    }
+    
+    // 再添加已加载的插件（会覆盖同名内置插件）
+    for (const plugin of loadedPlugins) {
+      pluginMap.set(plugin.id, plugin);
+    }
+
+    return Array.from(pluginMap.values());
   }
 
   /**
@@ -147,12 +160,15 @@ export class PluginRegistry {
    */
   searchPlugins(query: string): Plugin[] {
     const lower = query.toLowerCase();
-    return this.getAllPlugins().filter(
+    const allPlugins = this.getAllPlugins();
+    const results = allPlugins.filter(
       (plugin) =>
         plugin.name.toLowerCase().includes(lower) ||
         plugin.description?.toLowerCase().includes(lower) ||
         plugin.keywords.some((keyword) => keyword.toLowerCase().includes(lower))
     );
+    console.log(`[Plugin Search] Query: "${query}", Total plugins: ${allPlugins.length}, Results: ${results.length}`);
+    return results;
   }
 
   /**
