@@ -1375,7 +1375,12 @@ pub mod windows {
         if check_everything_service_running() {
             (true, None)
         } else {
-            (false, Some("SERVICE_NOT_RUNNING".to_string()))
+            // 先检查 Everything.exe 是否存在，以区分"未安装"和"已安装但未运行"
+            if find_everything_main_exe().is_some() {
+                (false, Some("SERVICE_NOT_RUNNING".to_string()))
+            } else {
+                (false, Some("NOT_INSTALLED".to_string()))
+            }
         }
     }
 

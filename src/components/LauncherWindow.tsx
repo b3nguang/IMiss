@@ -40,6 +40,8 @@ export function LauncherWindow() {
   const [everythingVersion, setEverythingVersion] = useState<string | null>(null);
   const [everythingError, setEverythingError] = useState<string | null>(null);
   const [isSearchingEverything, setIsSearchingEverything] = useState(false);
+  const [isDownloadingEverything, setIsDownloadingEverything] = useState(false);
+  const [everythingDownloadProgress, setEverythingDownloadProgress] = useState(0);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
@@ -199,6 +201,27 @@ export function LauncherWindow() {
     loadOpenHistory();
   }, []);
 
+  // Listen for Everything download progress events
+  useEffect(() => {
+    if (!isDownloadingEverything) return;
+
+    let unlistenFn: (() => void) | null = null;
+    
+    const setupProgressListener = async () => {
+      const unlisten = await listen<number>("everything-download-progress", (event) => {
+        setEverythingDownloadProgress(event.payload);
+      });
+      unlistenFn = unlisten;
+    };
+
+    setupProgressListener();
+
+    return () => {
+      if (unlistenFn) {
+        unlistenFn();
+      }
+    };
+  }, [isDownloadingEverything]);
 
   // Adjust window size when memo modal is shown
   useEffect(() => {
@@ -1490,6 +1513,31 @@ export function LauncherWindow() {
     }
   };
 
+  const handleDownloadEverything = async () => {
+    try {
+      setIsDownloadingEverything(true);
+      setEverythingDownloadProgress(0);
+
+      const installerPath = await tauriApi.downloadEverything();
+      setEverythingDownloadProgress(100);
+
+      // 下载完成后，临时取消窗口置顶，确保安装程序显示在启动器之上
+      const window = getCurrentWindow();
+      await window.setAlwaysOnTop(false);
+
+      // 自动打开安装程序
+      await tauriApi.launchFile(installerPath);
+
+      // 下载逻辑结束，重置下载状态（不再弹出遮挡安装向导的提示框）
+      setIsDownloadingEverything(false);
+      setEverythingDownloadProgress(0);
+    } catch (error) {
+      console.error("Failed to download Everything:", error);
+      setIsDownloadingEverything(false);
+      setEverythingDownloadProgress(0);
+      alert(`下载失败: ${error}`);
+    }
+  };
 
   const handleCheckAgain = async () => {
     try {
@@ -1531,21 +1579,6 @@ export function LauncherWindow() {
         if (path) {
           console.log("Everything found at:", path);
         }
-      } else {
-        // Show helpful message based on error type
-        let errorMessage = "Everything 仍未检测到。\n\n";
-        if (status.error) {
-          if (status.error.startsWith("NOT_INSTALLED")) {
-            errorMessage += "Everything 未安装。\n请先安装 Everything 主程序。";
-          } else if (status.error.startsWith("SERVICE_NOT_RUNNING")) {
-            errorMessage += "Everything 服务未运行。\n已尝试自动启动，如果仍然失败，请手动启动 Everything 主程序后点击\"刷新\"按钮。";
-          } else {
-            errorMessage += `错误：${status.error}\n\n请确保：\n1. Everything 已正确安装\n2. Everything 主程序正在运行`;
-          }
-        } else {
-          errorMessage += "请确保：\n1. Everything 已正确安装\n2. Everything 主程序正在运行";
-        }
-        alert(errorMessage);
       }
     } catch (error) {
       console.error("Failed to check Everything:", error);
@@ -2725,6 +2758,18 @@ export function LauncherWindow() {
                         启动 Everything
                       </button>
                     )}
+                    <button
+                      onClick={handleDownloadEverything}
+                      disabled={isDownloadingEverything}
+                      className={`px-2 py-1 text-xs rounded transition-colors ${
+                        isDownloadingEverything
+                          ? 'bg-gray-400 text-white cursor-not-allowed'
+                          : 'bg-blue-500 text-white hover:bg-blue-600'
+                      }`}
+                      title="下载并安装 Everything"
+                    >
+                      {isDownloadingEverything ? `下载中 ${everythingDownloadProgress}%` : '下载 Everything'}
+                    </button>
                     <button
                       onClick={handleCheckAgain}
                       className="px-2 py-1 text-xs bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors"
