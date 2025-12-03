@@ -9,7 +9,8 @@ function JsonFormatterApp() {
         backgroundColor: '#f9fafb', 
         margin: 0, 
         padding: 0,
-        overflow: 'hidden'
+        height: '100vh',
+        width: '100vw',
       }}
     >
       <JsonFormatterWindow />

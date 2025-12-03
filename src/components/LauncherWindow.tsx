@@ -1666,14 +1666,24 @@ export function LauncherWindow() {
         await tauriApi.showJsonFormatterWindow();
         // 使用事件传递 JSON 内容到格式化窗口
         // 延迟发送事件，确保窗口已创建并准备好接收事件
+        // 使用多个延迟确保窗口完全初始化
         setTimeout(async () => {
           try {
             const { emit } = await import("@tauri-apps/api/event");
             await emit("json-formatter:set-content", result.jsonContent);
           } catch (error) {
             console.error("Failed to send JSON content to formatter window:", error);
+            // 如果第一次失败，再试一次
+            setTimeout(async () => {
+              try {
+                const { emit } = await import("@tauri-apps/api/event");
+                await emit("json-formatter:set-content", result.jsonContent);
+              } catch (retryError) {
+                console.error("Failed to send JSON content to formatter window (retry):", retryError);
+              }
+            }, 500);
           }
-        }, 300);
+        }, 500);
         // 关闭启动器
         await tauriApi.hideLauncher();
         setQuery("");

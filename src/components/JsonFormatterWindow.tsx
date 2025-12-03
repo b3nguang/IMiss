@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
+import Editor from "@monaco-editor/react";
+import type { editor } from "monaco-editor";
 
 type JsonValue = string | number | boolean | null | JsonObject | JsonArray;
 type JsonObject = { [key: string]: JsonValue };
@@ -13,7 +15,14 @@ export function JsonFormatterWindow() {
   const [error, setError] = useState<string | null>(null);
   const [indent, setIndent] = useState(2);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
+  const [mode, setMode] = useState<"split" | "single">("single"); // 模式：分栏模式或单框模式
+  const [singleModeInput, setSingleModeInput] = useState<string>(""); // 单框模式下的输入内容（使用 state）
+  
   const shouldPreserveExpandedRef = useRef(false);
+  const singleModeEditingRef = useRef<boolean>(false); // 单框模式下是否正在编辑
+  const formatTimeoutRef = useRef<number | null>(null); // 格式化防抖定时器
+  const monacoEditorRef = useRef<editor.IStandaloneCodeEditor | null>(null); // Monaco Editor 实例
+
 
   // 监听来自启动器的 JSON 内容设置事件
   useEffect(() => {
@@ -24,7 +33,6 @@ export function JsonFormatterWindow() {
         unlisten = await listen<string>("json-formatter:set-content", (event) => {
           const jsonContent = event.payload;
           if (jsonContent) {
-            setInput(jsonContent);
             // 自动格式化
             try {
               const parsed = JSON.parse(jsonContent);
@@ -32,6 +40,11 @@ export function JsonFormatterWindow() {
               setFormatted(formattedJson);
               setParsedData(parsed);
               setError(null);
+              
+              // 同时更新两个状态，确保无论当前模式如何都能正确显示
+              setInput(jsonContent); // 分栏模式使用
+              setSingleModeInput(formattedJson); // 单框模式使用格式化后的内容
+              
               // 默认展开所有节点
               const allPaths = getAllPaths(parsed, "");
               setExpandedPaths(new Set(allPaths));
@@ -40,6 +53,9 @@ export function JsonFormatterWindow() {
               setError(errorMessage);
               setFormatted("");
               setParsedData(null);
+              // 即使解析失败，也显示原始内容
+              setInput(jsonContent);
+              setSingleModeInput(jsonContent);
             }
           }
         });
@@ -57,9 +73,9 @@ export function JsonFormatterWindow() {
     };
   }, [indent]);
 
-  // 实时格式化：监听 input 变化
-  useEffect(() => {
-    if (!input.trim()) {
+  // 格式化输入的 JSON 内容
+  const formatJsonContent = (content: string, preserveCursor: boolean = false) => {
+    if (!content.trim()) {
       setFormatted("");
       setParsedData(null);
       setError(null);
@@ -69,7 +85,7 @@ export function JsonFormatterWindow() {
     }
 
     try {
-      const parsed = JSON.parse(input);
+      const parsed = JSON.parse(content);
       const formattedJson = JSON.stringify(parsed, null, indent);
       setFormatted(formattedJson);
       setParsedData(parsed);
@@ -81,13 +97,34 @@ export function JsonFormatterWindow() {
         const allPaths = getAllPaths(parsed, "");
         setExpandedPaths(new Set(allPaths));
       }
+
+      // 如果需要在格式化后恢复光标位置（单框模式）
+      if (preserveCursor && mode === "single" && !singleModeEditingRef.current) {
+        // 更新 singleModeInput state
+        // Monaco Editor 会自动处理光标位置
+        setSingleModeInput(formattedJson);
+      }
     } catch (e) {
       const errorMessage = e instanceof Error ? e.message : "JSON 格式错误";
       setError(errorMessage);
       setFormatted("");
       setParsedData(null);
     }
-  }, [input, indent]);
+  };
+
+  // 实时格式化：监听 input 变化（分栏模式）
+  useEffect(() => {
+    if (mode === "split") {
+      formatJsonContent(input);
+    }
+  }, [input, indent, mode]);
+
+  // 当缩进改变时，如果单框模式有内容且不在编辑状态，重新格式化
+  useEffect(() => {
+    if (mode === "single" && singleModeInput && !singleModeEditingRef.current && formatted) {
+      formatJsonContent(singleModeInput, true);
+    }
+  }, [indent]);
 
   // 格式化 JSON
   const handleFormat = () => {
@@ -166,10 +203,11 @@ export function JsonFormatterWindow() {
     }
   };
 
-  // 折叠所有
+  // 折叠所有（只展开根节点）
   const collapseAll = () => {
     shouldPreserveExpandedRef.current = true; // 标记用户已手动调整展开状态
-    setExpandedPaths(new Set());
+    // 只保留根节点（空字符串路径）展开
+    setExpandedPaths(new Set([""]));
   };
 
   // 压缩 JSON
@@ -197,23 +235,6 @@ export function JsonFormatterWindow() {
     }
   };
 
-  // 验证 JSON
-  const handleValidate = () => {
-    if (!input.trim()) {
-      setError("请输入 JSON 内容");
-      return;
-    }
-
-    try {
-      JSON.parse(input);
-      setError(null);
-      alert("JSON 格式正确！");
-    } catch (e) {
-      const errorMessage = e instanceof Error ? e.message : "JSON 格式错误";
-      setError(errorMessage);
-    }
-  };
-
   // 复制到剪贴板
   const handleCopy = async () => {
     // 如果有解析的数据，复制格式化后的文本；否则复制 formatted
@@ -236,11 +257,13 @@ export function JsonFormatterWindow() {
   const handleClear = () => {
     setInput("");
     setFormatted("");
+    setSingleModeInput("");
     setParsedData(null);
     setError(null);
     setExpandedPaths(new Set());
     shouldPreserveExpandedRef.current = false;
   };
+
 
   // 渲染 JSON 值
   const renderJsonValue = (value: JsonValue, path: string, _key: string = "", showComma: boolean = false): JSX.Element => {
@@ -259,7 +282,15 @@ export function JsonFormatterWindow() {
     }
     
     if (typeof value === "string") {
-      return <span style={{ color: "#dc2626" }}>"{value}"{showComma && <span style={{ color: "#6b7280" }}>,</span>}</span>;
+      // 改进：引号和内容颜色区分
+      return (
+        <span>
+          <span style={{ color: "#dc2626", opacity: 0.7 }}>"</span>
+          <span style={{ color: "#dc2626" }}>{value}</span>
+          <span style={{ color: "#dc2626", opacity: 0.7 }}>"</span>
+          {showComma && <span style={{ color: "#6b7280" }}>,</span>}
+        </span>
+      );
     }
     
     if (Array.isArray(value)) {
@@ -273,21 +304,23 @@ export function JsonFormatterWindow() {
               userSelect: "none",
               color: "#3b82f6",
               fontWeight: 500,
+              marginRight: "4px",
             }}
           >
-            {isExpanded ? "▼" : "▶"} {"["}
+            {isExpanded ? "▼" : "▶"}
           </span>
-          {isEmpty && <span style={{ color: "#6b7280" }}> {"]"}</span>}
+          <span style={{ color: "#6b7280" }}>[</span>
+          {isEmpty && <span style={{ color: "#6b7280" }}>]</span>}
           {!isEmpty && (
             <>
               {isExpanded && (
-                <div style={{ marginLeft: "20px" }}>
+                <div style={{ marginLeft: `${indent * 8}px` }}>
                   {value.map((item, index) => {
                     const itemPath = `${path}[${index}]`;
                     const isLast = index === value.length - 1;
                     return (
-                      <div key={index} style={{ marginTop: "4px" }}>
-                        <span style={{ color: "#6b7280" }}>{index}: </span>
+                      <div key={index} style={{ marginTop: "2px", marginBottom: "2px" }}>
+                        <span style={{ color: "#9ca3af", fontWeight: 500, marginRight: "6px" }}>{index}:</span>
                         {renderJsonValue(item, itemPath, "", !isLast)}
                       </div>
                     );
@@ -295,21 +328,28 @@ export function JsonFormatterWindow() {
                 </div>
               )}
               {!isExpanded && (
-                <span style={{ color: "#6b7280", marginLeft: "4px" }}>
-                  {value.length} items
-                </span>
+                <>
+                  <span style={{ color: "#6b7280", marginLeft: "4px" }}>
+                    {value.length} items
+                  </span>
+                  <span style={{ color: "#6b7280" }}>]</span>
+                  {showComma && <span style={{ color: "#6b7280" }}>,</span>}
+                </>
               )}
               {isExpanded && (
-                <span
-                  onClick={() => toggleExpand(path)}
-                  style={{
-                    cursor: "pointer",
-                    userSelect: "none",
-                    color: "#3b82f6",
-                  }}
-                >
-                  ]{showComma && <span style={{ color: "#6b7280" }}>,</span>}
-                </span>
+                <div>
+                  <span
+                    onClick={() => toggleExpand(path)}
+                    style={{
+                      cursor: "pointer",
+                      userSelect: "none",
+                      color: "#3b82f6",
+                    }}
+                  >
+                    <span style={{ color: "#6b7280" }}>]</span>
+                    {showComma && <span style={{ color: "#6b7280" }}>,</span>}
+                  </span>
+                </div>
               )}
             </>
           )}
@@ -331,21 +371,24 @@ export function JsonFormatterWindow() {
               userSelect: "none",
               color: "#3b82f6",
               fontWeight: 500,
+              marginRight: "4px",
             }}
           >
-            {isExpanded ? "▼" : "▶"} {"{"}
+            {isExpanded ? "▼" : "▶"}
           </span>
-          {isEmpty && <span style={{ color: "#6b7280" }}> {"}"}</span>}
+          <span style={{ color: "#6b7280" }}>{"{"}</span>
+          {isEmpty && <span style={{ color: "#6b7280" }}>{"}"}</span>}
           {!isEmpty && (
             <>
               {isExpanded && (
-                <div style={{ marginLeft: "20px" }}>
+                <div style={{ marginLeft: `${indent * 8}px` }}>
                   {keys.map((k, index) => {
                     const itemPath = path ? `${path}.${k}` : k;
                     const isLast = index === keys.length - 1;
                     return (
-                      <div key={k} style={{ marginTop: "4px", display: "flex", alignItems: "flex-start" }}>
-                        <span style={{ color: "#059669", marginRight: "4px" }}>"{k}":</span>
+                      <div key={k} style={{ marginTop: "2px", marginBottom: "2px", display: "flex", alignItems: "flex-start" }}>
+                        <span style={{ color: "#7c3aed", marginRight: "8px", fontWeight: 500 }}>"{k}"</span>
+                        <span style={{ color: "#6b7280", marginRight: "6px" }}>:</span>
                         <div style={{ flex: 1 }}>
                           {renderJsonValue(obj[k], itemPath, k, !isLast)}
                         </div>
@@ -355,21 +398,28 @@ export function JsonFormatterWindow() {
                 </div>
               )}
               {!isExpanded && (
-                <span style={{ color: "#6b7280", marginLeft: "4px" }}>
-                  {keys.length} keys
-                </span>
+                <>
+                  <span style={{ color: "#6b7280", marginLeft: "4px" }}>
+                    {keys.length} keys
+                  </span>
+                  <span style={{ color: "#6b7280" }}>{"}"}</span>
+                  {showComma && <span style={{ color: "#6b7280" }}>,</span>}
+                </>
               )}
               {isExpanded && (
-                <span
-                  onClick={() => toggleExpand(path)}
-                  style={{
-                    cursor: "pointer",
-                    userSelect: "none",
-                    color: "#3b82f6",
-                  }}
-                >
-                  {"}"}
-                </span>
+                <div>
+                  <span
+                    onClick={() => toggleExpand(path)}
+                    style={{
+                      cursor: "pointer",
+                      userSelect: "none",
+                      color: "#3b82f6",
+                    }}
+                  >
+                    <span style={{ color: "#6b7280" }}>{"}"}</span>
+                    {showComma && <span style={{ color: "#6b7280" }}>,</span>}
+                  </span>
+                </div>
               )}
             </>
           )}
@@ -400,7 +450,8 @@ export function JsonFormatterWindow() {
       style={{
         display: "flex",
         flexDirection: "column",
-        height: "100vh",
+        height: "100%",
+        width: "100%",
         backgroundColor: "#f9fafb",
         fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
       }}
@@ -507,27 +558,6 @@ export function JsonFormatterWindow() {
           压缩
         </button>
         <button
-          onClick={handleValidate}
-          style={{
-            padding: "8px 16px",
-            backgroundColor: "#8b5cf6",
-            color: "white",
-            border: "none",
-            borderRadius: "6px",
-            cursor: "pointer",
-            fontSize: "14px",
-            fontWeight: 500,
-          }}
-          onMouseOver={(e) => {
-            e.currentTarget.style.backgroundColor = "#7c3aed";
-          }}
-          onMouseOut={(e) => {
-            e.currentTarget.style.backgroundColor = "#8b5cf6";
-          }}
-        >
-          验证
-        </button>
-        <button
           onClick={handleCopy}
           disabled={!formatted && !parsedData}
           style={{
@@ -627,6 +657,42 @@ export function JsonFormatterWindow() {
           清空
         </button>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "8px" }}>
+          <button
+            onClick={() => {
+              const newMode = mode === "split" ? "single" : "split";
+              setMode(newMode);
+              if (newMode === "single" && input) {
+                // 切换到单框模式时，将当前输入内容同步到单框模式
+                setSingleModeInput(input);
+                formatJsonContent(input);
+              } else if (newMode === "split" && singleModeInput) {
+                // 切换回分栏模式时，将单框模式的内容同步到输入框
+                setInput(singleModeInput);
+              }
+            }}
+            style={{
+              padding: "6px 12px",
+              backgroundColor: mode === "single" ? "#6366f1" : "#e5e7eb",
+              color: mode === "single" ? "white" : "#374151",
+              border: "none",
+              borderRadius: "6px",
+              cursor: "pointer",
+              fontSize: "13px",
+              fontWeight: 500,
+            }}
+            onMouseOver={(e) => {
+              if (mode === "split") {
+                e.currentTarget.style.backgroundColor = "#d1d5db";
+              }
+            }}
+            onMouseOut={(e) => {
+              if (mode === "split") {
+                e.currentTarget.style.backgroundColor = "#e5e7eb";
+              }
+            }}
+          >
+            {mode === "split" ? "单框模式" : "分栏模式"}
+          </button>
           <label style={{ fontSize: "14px", color: "#374151" }}>缩进:</label>
           <select
             value={indent}
@@ -663,63 +729,147 @@ export function JsonFormatterWindow() {
       )}
 
       {/* 主内容区 */}
-      <div
-        style={{
-          flex: 1,
-          display: "flex",
-          gap: "1px",
-          overflow: "hidden",
-        }}
-      >
-        {/* 输入区域 */}
+      {mode === "split" ? (
         <div
           style={{
             flex: 1,
             display: "flex",
-            flexDirection: "column",
-            backgroundColor: "#ffffff",
+            gap: "1px",
+            overflow: "hidden",
           }}
         >
+          {/* 输入区域 */}
           <div
             style={{
-              padding: "8px 12px",
-              backgroundColor: "#f3f4f6",
-              borderBottom: "1px solid #e5e7eb",
-              fontSize: "13px",
-              fontWeight: 500,
-              color: "#374151",
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              backgroundColor: "#ffffff",
             }}
           >
-            输入 JSON
+            <div
+              style={{
+                padding: "8px 12px",
+                backgroundColor: "#f3f4f6",
+                borderBottom: "1px solid #e5e7eb",
+                fontSize: "13px",
+                fontWeight: 500,
+                color: "#374151",
+              }}
+            >
+              输入 JSON
+            </div>
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="在此粘贴或输入 JSON 内容..."
+              style={{
+                flex: 1,
+                padding: "12px",
+                border: "none",
+                outline: "none",
+                resize: "none",
+                fontFamily: "'Courier New', monospace",
+                fontSize: "14px",
+                lineHeight: "1.6",
+                backgroundColor: "#ffffff",
+                color: "#111827",
+              }}
+              spellCheck={false}
+            />
           </div>
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="在此粘贴或输入 JSON 内容..."
+
+          {/* 输出区域 */}
+          <div
             style={{
               flex: 1,
-              padding: "12px",
-              border: "none",
-              outline: "none",
-              resize: "none",
-              fontFamily: "'Courier New', monospace",
-              fontSize: "14px",
-              lineHeight: "1.6",
+              display: "flex",
+              flexDirection: "column",
               backgroundColor: "#ffffff",
-              color: "#111827",
+              borderLeft: "1px solid #e5e7eb",
             }}
-            spellCheck={false}
-          />
+          >
+            <div
+              style={{
+                padding: "8px 12px",
+                backgroundColor: "#f3f4f6",
+                borderBottom: "1px solid #e5e7eb",
+                fontSize: "13px",
+                fontWeight: 500,
+                color: "#374151",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <span>格式化结果</span>
+              {parsedData && (
+                <div style={{ display: "flex", gap: "8px", fontSize: "12px" }}>
+                  <button
+                    onClick={() => {
+                      const textarea = document.createElement("textarea");
+                      textarea.value = formatted;
+                      document.body.appendChild(textarea);
+                      textarea.select();
+                      document.execCommand("copy");
+                      document.body.removeChild(textarea);
+                      alert("已复制到剪贴板");
+                    }}
+                    style={{
+                      padding: "4px 8px",
+                      backgroundColor: "#6366f1",
+                      color: "white",
+                      border: "none",
+                      borderRadius: "4px",
+                      cursor: "pointer",
+                      fontSize: "12px",
+                    }}
+                  >
+                    复制文本
+                  </button>
+                </div>
+              )}
+            </div>
+            <div
+              style={{
+                flex: 1,
+                padding: "12px",
+                overflow: "auto",
+                fontFamily: "'Courier New', monospace",
+                fontSize: "14px",
+                lineHeight: "1.6",
+                backgroundColor: "#ffffff",
+                color: "#111827",
+              }}
+            >
+              {parsedData ? (
+                renderJsonValue(parsedData, "")
+              ) : formatted ? (
+                <pre
+                  style={{
+                    margin: 0,
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word",
+                  }}
+                >
+                  {formatted}
+                </pre>
+              ) : (
+                <div style={{ color: "#9ca3af" }}>格式化后的 JSON 将显示在这里...</div>
+              )}
+            </div>
+          </div>
         </div>
-
-        {/* 输出区域 */}
+      ) : (
+        /* 单框模式：可编辑的格式化结果 */
         <div
           style={{
             flex: 1,
             display: "flex",
             flexDirection: "column",
             backgroundColor: "#ffffff",
-            borderLeft: "1px solid #e5e7eb",
+            overflow: "auto",
+            height: "100%",
           }}
         >
           <div
@@ -735,18 +885,18 @@ export function JsonFormatterWindow() {
               alignItems: "center",
             }}
           >
-            <span>格式化结果</span>
-            {parsedData && (
-              <div style={{ display: "flex", gap: "8px", fontSize: "12px" }}>
+            <span>JSON 编辑器（所见即所得）</span>
+            <div style={{ display: "flex", gap: "8px", fontSize: "12px", alignItems: "center" }}>
+              {formatted && (
                 <button
-                  onClick={() => {
-                    const textarea = document.createElement("textarea");
-                    textarea.value = formatted;
-                    document.body.appendChild(textarea);
-                    textarea.select();
-                    document.execCommand("copy");
-                    document.body.removeChild(textarea);
-                    alert("已复制到剪贴板");
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(formatted || singleModeInput);
+                      alert("已复制到剪贴板");
+                    } catch (e) {
+                      console.error("复制失败:", e);
+                      alert("复制失败，请手动复制");
+                    }
                   }}
                   style={{
                     padding: "4px 8px",
@@ -760,39 +910,85 @@ export function JsonFormatterWindow() {
                 >
                   复制文本
                 </button>
-              </div>
-            )}
+              )}
+            </div>
           </div>
           <div
             style={{
               flex: 1,
-              padding: "12px",
-              overflow: "auto",
-              fontFamily: "'Courier New', monospace",
-              fontSize: "14px",
-              lineHeight: "1.8",
-              backgroundColor: "#ffffff",
-              color: "#111827",
+              minHeight: 0,
+              display: "flex",
+              flexDirection: "column",
             }}
           >
-            {parsedData ? (
-              renderJsonValue(parsedData, "")
-            ) : formatted ? (
-              <pre
-                style={{
-                  margin: 0,
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-word",
-                }}
-              >
-                {formatted}
-              </pre>
-            ) : (
-              <div style={{ color: "#9ca3af" }}>格式化后的 JSON 将显示在这里...</div>
-            )}
+            {/* 文本编辑区 - 使用 Monaco Editor */}
+            <Editor
+              height="100%"
+              language="json"
+              value={singleModeInput}
+              onChange={(value) => {
+                if (value !== undefined) {
+                  setSingleModeInput(value);
+                  singleModeEditingRef.current = true;
+                  
+                  // 清除之前的定时器
+                  if (formatTimeoutRef.current) {
+                    window.clearTimeout(formatTimeoutRef.current);
+                  }
+                  
+                  // 防抖：停止输入 500ms 后自动格式化
+                  formatTimeoutRef.current = window.setTimeout(() => {
+                    singleModeEditingRef.current = false;
+                    formatJsonContent(value, true);
+                  }, 500);
+                }
+              }}
+              onMount={(editor) => {
+                monacoEditorRef.current = editor;
+                // 监听失去焦点事件
+                editor.onDidBlurEditorText(() => {
+                  // 失去焦点时立即格式化
+                  if (formatTimeoutRef.current) {
+                    window.clearTimeout(formatTimeoutRef.current);
+                  }
+                  singleModeEditingRef.current = false;
+                  formatJsonContent(singleModeInput, true);
+                });
+              }}
+              options={{
+                fontSize: 14,
+                fontFamily: "'Courier New', monospace",
+                lineNumbers: "on",
+                folding: true,
+                foldingStrategy: "indentation",
+                showFoldingControls: "always",
+                wordWrap: "on",
+                minimap: { 
+                  enabled: true, // 启用右侧导航缩略图
+                  renderCharacters: true, // 渲染字符（对应右键菜单的 "Render Characters"）
+                  maxColumn: 120, // 最大列数
+                  showSlider: "always", // 显示滑块：always（总是）、mouseover（鼠标悬停时）
+                  side: "right", // 位置：右侧
+                  size: "fill", // 垂直大小：proportional（比例）、fill（填充）、fit（适应）
+                },
+                scrollBeyondLastLine: false,
+                automaticLayout: true,
+                tabSize: indent,
+                insertSpaces: true,
+                formatOnPaste: false,
+                formatOnType: false,
+                padding: { top: 12, bottom: 12 },
+                lineDecorationsWidth: 10,
+                lineNumbersMinChars: 3,
+                renderLineHighlight: "all",
+                matchBrackets: "always",
+                bracketPairColorization: { enabled: true },
+              }}
+              theme="vs-dark" // 使用黑色主题
+            />
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
