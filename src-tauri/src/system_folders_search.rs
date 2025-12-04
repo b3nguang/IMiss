@@ -41,7 +41,6 @@ pub mod windows {
         ("网络", CSIDL_NETWORK, "Network"),
         ("字体", CSIDL_FONTS, "Fonts"),
         ("程序", CSIDL_PROGRAMS, "Programs"),
-        ("启动", CSIDL_STARTUP, "Startup"),
         ("最近使用的文档", CSIDL_RECENT, "Recent"),
         ("下载", CSIDL_PROFILE, "Downloads"), // 需要特殊处理
         ("图片", CSIDL_MYPICTURES, "Pictures"),
@@ -179,7 +178,7 @@ pub mod windows {
                 let path_lower = folder.path.to_lowercase();
 
                 let mut score = 0;
-
+                
                 // Direct text match (highest priority)
                 if name_lower == query_lower {
                     score += 1000;
