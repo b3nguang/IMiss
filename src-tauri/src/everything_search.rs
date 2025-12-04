@@ -1296,6 +1296,9 @@ pub mod windows {
                         );
                         return Err(EverythingError::Timeout);
                     }
+                    // 添加短暂延迟，避免过于频繁的轮询导致 CPU 消耗
+                    // pump_messages 内部已经有延迟，这里再添加一个小延迟可以进一步减少 CPU 使用
+                    std::thread::sleep(Duration::from_millis(5));
                 }
                 Err(mpsc::TryRecvError::Disconnected) => {
                     log_debug!("[DEBUG] ERROR: Result channel disconnected");
