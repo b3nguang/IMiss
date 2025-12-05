@@ -1,8 +1,33 @@
 {
   "name": "re-fast",
-  "private": true,
+  "private": false,
   "version": "1.0.12",
+  "description": "基于 Tauri 2 的 Windows 快速启动器",
   "type": "module",
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Xieweikang123/ReFast.git"
+  },
+  "homepage": "https://github.com/Xieweikang123/ReFast#readme",
+  "bugs": {
+    "url": "https://github.com/Xieweikang123/ReFast/issues"
+  },
+  "keywords": [
+    "tauri",
+    "launcher",
+    "quick-launcher",
+    "fast-launcher",
+    "windows",
+    "desktop-app",
+    "react",
+    "typescript",
+    "rust",
+    "spotlight",
+    "alfred",
+    "wox"
+  ],
   "scripts": {
     "dev": "vite",
     "dev:tauri": "tauri dev",

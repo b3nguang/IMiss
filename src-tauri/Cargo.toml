@@ -1,10 +1,10 @@
 [package]
 name = "re-fast"
 version = "1.0.12"
-description = "Input Macro Recorder"
-authors = ["you"]
-license = ""
-repository = ""
+description = "基于 Tauri 2 的 Windows 快速启动器"
+authors = ["Xieweikang123"]
+license = "MIT"
+repository = "https://github.com/Xieweikang123/ReFast.git"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
