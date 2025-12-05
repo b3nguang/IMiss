@@ -1317,17 +1317,17 @@ export function LauncherWindow() {
     ];
     
     // 对结果进行去重：如果同一个路径出现在多个结果源中，只保留一个
-    // 优先保留 Everything 结果（因为它是实时搜索的，更准确）
-    // 先收集 Everything 结果的路径集合
-    const everythingPaths = new Set<string>();
+    // 优先保留历史文件结果（因为历史记录包含使用频率和最近使用时间，排序更准确）
+    // 先收集历史文件结果的路径集合
+    const historyFilePaths = new Set<string>();
     for (const result of otherResults) {
-      if (result.type === "everything") {
+      if (result.type === "file") {
         const normalizedPath = result.path.toLowerCase().replace(/\\/g, "/");
-        everythingPaths.add(normalizedPath);
+        historyFilePaths.add(normalizedPath);
       }
     }
     
-    // 过滤掉历史文件结果中与 Everything 结果重复的路径
+    // 过滤掉 Everything 结果中与历史文件结果重复的路径
     const deduplicatedResults: SearchResult[] = [];
     for (const result of otherResults) {
       // 对于特殊类型（AI、历史、设置等）和 URL，不需要去重
@@ -1336,25 +1336,25 @@ export function LauncherWindow() {
         continue;
       }
       
-      // 对于 Everything 类型，直接添加
-      if (result.type === "everything") {
+      // 对于历史文件类型，直接添加（优先保留）
+      if (result.type === "file") {
         deduplicatedResults.push(result);
         continue;
       }
       
-      // 对于历史文件类型，检查是否已在 Everything 结果中
-      if (result.type === "file") {
+      // 对于 Everything 类型，检查是否已在历史文件结果中
+      if (result.type === "everything") {
         const normalizedPath = result.path.toLowerCase().replace(/\\/g, "/");
-        if (!everythingPaths.has(normalizedPath)) {
+        if (!historyFilePaths.has(normalizedPath)) {
           deduplicatedResults.push(result);
         }
-        // 如果路径已在 Everything 结果中，跳过（不添加历史文件结果）
+        // 如果路径已在历史文件结果中，跳过（不添加 Everything 结果）
         continue;
       }
       
       // 对于其他类型（app、system_folder 等），检查路径是否重复
       const normalizedPath = result.path.toLowerCase().replace(/\\/g, "/");
-      if (!everythingPaths.has(normalizedPath)) {
+      if (!historyFilePaths.has(normalizedPath)) {
         deduplicatedResults.push(result);
       }
     }
