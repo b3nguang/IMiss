@@ -75,3 +75,4 @@ pub fn get_launcher_position(app_data_dir: &Path) -> Option<WindowPosition> {
         .and_then(|configs| configs.launcher.position)
 }
 
+
