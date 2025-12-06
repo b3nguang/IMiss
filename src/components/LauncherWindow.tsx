@@ -937,6 +937,7 @@ export function LauncherWindow() {
   }, [resultStyle]);
 
   // Call Ollama API to ask AI (流式请求)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const askOllama = async (prompt: string) => {
     if (!prompt.trim()) {
       return;
@@ -1137,6 +1138,11 @@ export function LauncherWindow() {
       alert(`调用AI失败: ${errorMessage}\n\n请确保:\n1. Ollama服务正在运行\n2. 已安装模型 (例如: ollama pull ${model})\n3. 服务地址为 ${baseUrl}`);
     }
   };
+
+  // 将 askOllama 暴露到 window 以避免未使用告警并便于调试
+  useEffect(() => {
+    (window as any).__askOllama = askOllama;
+  }, [askOllama]);
 
   // Search applications, file history, and Everything when query changes (with debounce)
   useEffect(() => {
@@ -2751,12 +2757,17 @@ export function LauncherWindow() {
         // 不关闭启动器，让用户查看历史访问
         return;
       } else if (result.type === "settings") {
-        // 打开设置窗口
-        await tauriApi.showSettingsWindow();
-        // 关闭启动器
-        await tauriApi.hideLauncher();
-        setQuery("");
-        setSelectedIndex(0);
+        // 打开设置窗口，失败时给出可见提示，避免用户感知为“无反应”
+        try {
+          await tauriApi.showSettingsWindow();
+          // 关闭启动器
+          await tauriApi.hideLauncher();
+          setQuery("");
+          setSelectedIndex(0);
+        } catch (error) {
+          console.error("Failed to open settings window:", error);
+          alert("打开设置窗口失败，请重试（详情见控制台日志）");
+        }
         return;
       } else if (result.type === "app" && result.app) {
         await tauriApi.launchApplication(result.app);
@@ -3457,7 +3468,18 @@ export function LauncherWindow() {
               {results.map((result, index) => (
                 <div
                   key={`${result.type}-${result.path}-${index}`}
-                  onClick={() => handleLaunch(result)}
+                  onMouseDown={async (e) => {
+                    // 左键按下即触发，避免某些环境下 click 被吞掉
+                    if (e.button !== 0) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    await handleLaunch(result);
+                  }}
+                  onClick={(e) => {
+                    // 保底处理，若 onMouseDown 已触发则阻止重复
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
                   onContextMenu={(e) => handleContextMenu(e, result)}
                   className={theme.card(index === selectedIndex)}
                   style={{

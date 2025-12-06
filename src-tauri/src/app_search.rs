@@ -120,6 +120,22 @@ pub mod windows {
             }
         }
 
+        // Scan Microsoft Store / UWP apps via Get-StartApps (shell:AppsFolder targets)
+        match scan_uwp_apps() {
+            Ok(mut uwp_apps) => {
+                let before = apps.len();
+                apps.append(&mut uwp_apps);
+                eprintln!(
+                    "[DEBUG] Added {} UWP apps from Get-StartApps, total so far {}",
+                    apps.len().saturating_sub(before),
+                    apps.len()
+                );
+            }
+            Err(e) => {
+                eprintln!("[DEBUG] Failed to scan UWP apps: {}", e);
+            }
+        }
+
         eprintln!("[DEBUG] Total apps found before dedup: {}", apps.len());
 
         // Remove duplicates based on path (more accurate than name)
@@ -144,6 +160,85 @@ pub mod windows {
             eprintln!("[DEBUG] Found Cursor: name={}, path={}", cursor_app.name, cursor_app.path);
         } else {
             eprintln!("[DEBUG] Cursor not found in scanned apps");
+        }
+
+        Ok(apps)
+    }
+
+    #[derive(Deserialize)]
+    struct StartAppEntry {
+        #[serde(rename = "Name")]
+        name: String,
+        #[serde(rename = "AppID")]
+        app_id: String,
+    }
+
+    /// Enumerate Microsoft Store / UWP apps using PowerShell Get-StartApps.
+    /// Produces shell:AppsFolder targets so they can be launched via ShellExecute.
+    fn scan_uwp_apps() -> Result<Vec<AppInfo>, String> {
+        // PowerShell script: list Name/AppID and convert to JSON
+        let script = r#"
+        try {
+            $apps = Get-StartApps | Where-Object { $_.AppId -and $_.Name }
+            $apps | Select-Object Name, AppId | ConvertTo-Json -Depth 3
+        } catch {
+            Write-Error $_
+        }
+        "#;
+
+        let output = Command::new("powershell")
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
+            .arg("-NoLogo")
+            .arg("-NoProfile")
+            .arg("-NonInteractive")
+            .arg("-Command")
+            .arg(script)
+            .output()
+            .map_err(|e| format!("Failed to run PowerShell: {}", e))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("PowerShell Get-StartApps failed: {}", stderr));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stdout_trimmed = stdout.trim();
+        if stdout_trimmed.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Handle both array and single-object JSON outputs
+        let entries: Vec<StartAppEntry> = serde_json::from_str(stdout_trimmed)
+            .or_else(|_| serde_json::from_str::<StartAppEntry>(stdout_trimmed).map(|e| vec![e]))
+            .map_err(|e| format!("Failed to parse Get-StartApps JSON: {}", e))?;
+
+        let mut apps = Vec::with_capacity(entries.len());
+        for entry in entries {
+            let name = entry.name.trim();
+            let app_id = entry.app_id.trim();
+            if name.is_empty() || app_id.is_empty() {
+                continue;
+            }
+
+            let path = format!("shell:AppsFolder\\{}", app_id);
+            let name_string = name.to_string();
+            let (name_pinyin, name_pinyin_initials) = if contains_chinese(name) {
+                (
+                    Some(to_pinyin(name).to_lowercase()),
+                    Some(to_pinyin_initials(name).to_lowercase()),
+                )
+            } else {
+                (None, None)
+            };
+
+            apps.push(AppInfo {
+                name: name_string,
+                path,
+                icon: None,
+                description: None,
+                name_pinyin,
+                name_pinyin_initials,
+            });
         }
 
         Ok(apps)
@@ -701,23 +796,27 @@ public class IconExtractor {
         use std::ffi::OsStr;
         use std::os::windows::ffi::OsStrExt;
         use windows_sys::Win32::UI::Shell::ShellExecuteW;
-        
-        let path = Path::new(&app.path);
 
-        // Check if path exists (for non-lnk files)
-        let is_lnk = path.extension().and_then(|s| s.to_str()) == Some("lnk");
-        if !is_lnk && !path.exists() {
-            return Err(format!("Application not found: {}", app.path));
+        let path_str = app.path.trim();
+        let path = Path::new(path_str);
+        let is_shell_uri = path_str.to_lowercase().starts_with("shell:appsfolder");
+
+        // For shell:AppsFolder URIs, skip filesystem existence checks
+        if !is_shell_uri {
+            let is_lnk = path.extension().and_then(|s| s.to_str()) == Some("lnk");
+            if !is_lnk && !path.exists() {
+                return Err(format!("Application not found: {}", app.path));
+            }
         }
 
-        // Convert path to wide string (UTF-16) for Windows API
-        let path_wide: Vec<u16> = OsStr::new(&app.path)
+        // Convert path (or shell URI) to wide string (UTF-16) for Windows API
+        let path_wide: Vec<u16> = OsStr::new(path_str)
             .encode_wide()
             .chain(Some(0))
             .collect();
-        
+
         // Use ShellExecuteW to open application without showing command prompt
-        // This works for .exe, .lnk, and other executable types
+        // This works for .exe, .lnk, shell:AppsFolder URIs, and other executable types
         let result = unsafe {
             ShellExecuteW(
                 0, // hwnd - no parent window

@@ -2479,6 +2479,12 @@ pub async fn show_settings_window(app: tauri::AppHandle) -> Result<(), String> {
 
         println!("[后端] show_settings_window: 窗口创建成功");
 
+        // 确保新建的设置窗口出现在前台并获得焦点，避免用户误以为无响应
+        window
+            .show()
+            .and_then(|_| window.set_focus())
+            .map_err(|e| format!("显示设置窗口失败: {}", e))?;
+
         // 通知前端刷新数据
         let window_clone = window.clone();
         tauri::async_runtime::spawn(async move {

@@ -98,6 +98,7 @@ export interface PluginContext {
   setMemoEditTitle?: (title: string) => void;
   setMemoEditContent?: (content: string) => void;
   setIsEditingMemo?: (editing: boolean) => void;
+  setMemos?: (memos: MemoItem[]) => void;
   // 插件列表相关状态
   setIsPluginListModalOpen?: (open: boolean) => void;
   // Tauri API
