@@ -79,6 +79,7 @@ export function LauncherWindow() {
     }
     return "skeuomorphic";
   });
+  const [closeOnBlur, setCloseOnBlur] = useState(true);
   const [windowWidth, setWindowWidth] = useState<number>(() => {
     // 从本地存储读取保存的宽度，默认600
     const saved = localStorage.getItem('launcher-window-width');
@@ -106,6 +107,7 @@ export function LauncherWindow() {
   const lastSearchQueryRef = useRef<string>(""); // 用于去重，避免相同查询重复搜索
   const debounceTimeoutRef = useRef<number | null>(null); // 用于跟踪防抖定时器
   const currentLoadResultsRef = useRef<SearchResult[]>([]); // 跟踪当前正在加载的结果，用于验证是否仍有效
+  const closeOnBlurRef = useRef(true);
 
   const getMainContainer = () => containerRef.current || (document.querySelector('.bg-white') as HTMLElement | null);
 
@@ -116,6 +118,10 @@ export function LauncherWindow() {
   useEffect(() => {
     isPluginListModalOpenRef.current = isPluginListModalOpen;
   }, [isPluginListModalOpen]);
+
+  useEffect(() => {
+    closeOnBlurRef.current = closeOnBlur;
+  }, [closeOnBlur]);
 
   // 动态注入滚动条样式，确保样式生效（随风格变化）
   // 注意：Windows 11 可能使用系统原生滚动条，webkit-scrollbar 样式可能不生效
@@ -285,6 +291,9 @@ export function LauncherWindow() {
             : "skeuomorphic";
         setResultStyle(fallback);
         localStorage.setItem("result-style", fallback);
+        const closeOnBlurSetting = settings.close_on_blur ?? true;
+        setCloseOnBlur(closeOnBlurSetting);
+        closeOnBlurRef.current = closeOnBlurSetting;
       } catch (error) {
         console.error("Failed to load settings:", error);
       }
@@ -542,6 +551,9 @@ export function LauncherWindow() {
         }
       } else if (!focused) {
         if (isWindowDraggingRef.current) {
+          return;
+        }
+        if (!closeOnBlurRef.current) {
           return;
         }
         // 当窗口失去焦点时，自动关闭搜索框

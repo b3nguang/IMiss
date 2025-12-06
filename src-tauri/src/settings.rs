@@ -2,13 +2,30 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Settings {
     pub ollama: OllamaSettings,
     #[serde(default)]
     pub startup_enabled: bool,
     #[serde(default)]
     pub hotkey: Option<HotkeyConfig>,
+    #[serde(default = "default_close_on_blur")]
+    pub close_on_blur: bool,
+}
+
+fn default_close_on_blur() -> bool {
+    true
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            ollama: OllamaSettings::default(),
+            startup_enabled: false,
+            hotkey: None,
+            close_on_blur: default_close_on_blur(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

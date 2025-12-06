@@ -11,6 +11,8 @@ interface Settings {
     base_url: string;
   };
   startup_enabled?: boolean;
+  result_style?: "compact" | "soft" | "skeuomorphic";
+  close_on_blur?: boolean;
 }
 
 type SettingsPage = "ollama" | "system" | "about";
@@ -23,6 +25,8 @@ function SettingsApp() {
       base_url: "http://localhost:11434",
     },
     startup_enabled: false,
+    result_style: "skeuomorphic",
+    close_on_blur: true,
   });
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -39,6 +43,8 @@ function SettingsApp() {
       setSettings({
         ...data,
         startup_enabled: startupEnabled,
+        result_style: data.result_style || "skeuomorphic",
+        close_on_blur: data.close_on_blur ?? true,
       });
     } catch (error) {
       console.error("Failed to load settings:", error);

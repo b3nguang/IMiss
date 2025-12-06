@@ -19,6 +19,7 @@ interface Settings {
   };
   startup_enabled?: boolean;
   result_style?: "compact" | "soft" | "skeuomorphic";
+  close_on_blur?: boolean;
 }
 
 interface MenuItem {
@@ -75,6 +76,7 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
     },
     startup_enabled: false,
     result_style: "skeuomorphic",
+    close_on_blur: true,
   });
   const [isLoadingSettings, setIsLoadingSettings] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -115,6 +117,7 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
         ...data,
         startup_enabled: startupEnabled,
         result_style: data.result_style || (localStorage.getItem("result-style") as Settings["result_style"]) || "skeuomorphic",
+        close_on_blur: data.close_on_blur ?? true,
       });
     } catch (error) {
       console.error("Failed to load settings:", error);

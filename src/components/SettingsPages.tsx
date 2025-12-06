@@ -109,6 +109,7 @@ interface SystemSettingsProps {
   settings: {
     startup_enabled?: boolean;
     result_style?: "compact" | "soft" | "skeuomorphic";
+    close_on_blur?: boolean;
   };
   onSettingsChange: (settings: any) => void;
   onOpenHotkeySettings: () => void;
@@ -151,6 +152,31 @@ export function SystemSettingsPage({
               <option value="soft">渐变卡片</option>
               <option value="skeuomorphic">拟物风</option>
             </select>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                失焦自动关闭启动器
+              </label>
+              <p className="text-xs text-gray-500">
+                当窗口失去焦点时自动隐藏启动器（默认开启）
+              </p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={settings.close_on_blur ?? true}
+                onChange={(e) =>
+                  onSettingsChange({
+                    ...settings,
+                    close_on_blur: e.target.checked,
+                  })
+                }
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+            </label>
           </div>
 
           <div className="flex items-center justify-between">
