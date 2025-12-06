@@ -85,7 +85,7 @@ export function LauncherWindow() {
   const lastClipboardUrlRef = useRef<string | null>(null);
   // 记录备忘录弹窗是否打开，用于全局 ESC 处理时优先关闭备忘录，而不是隐藏整个窗口
   const isMemoModalOpenRef = useRef(false);
-  // 记录插件列表弹窗是否打开，用于全局 ESC 处理时优先关闭插件列表，而不是隐藏整个窗口
+  // 记录应用中心弹窗是否打开，用于全局 ESC 处理时优先关闭应用中心，而不是隐藏整个窗口
   const isPluginListModalOpenRef = useRef(false);
   const shouldPreserveScrollRef = useRef(false); // 标记是否需要保持滚动位置
   const finalResultsSetRef = useRef(false); // 方案 B 中仅用于调试/校验，不再阻止批次更新
@@ -352,7 +352,7 @@ export function LauncherWindow() {
     });
   }, [isMemoModalOpen, isMemoListMode, selectedMemo, isEditingMemo]);
 
-  // Adjust window size when plugin list modal is shown
+  // Adjust window size when app center modal is shown
   useEffect(() => {
     if (!isPluginListModalOpen) return;
 
@@ -414,7 +414,7 @@ export function LauncherWindow() {
       if (e.key === "Escape" || e.keyCode === 27) {
         e.preventDefault();
         e.stopPropagation();
-        // 如果插件列表弹窗已打开，关闭插件列表并隐藏窗口（插件像独立软件一样运行）
+        // 如果应用中心弹窗已打开，关闭应用中心并隐藏窗口（插件像独立软件一样运行）
         if (isPluginListModalOpenRef.current) {
           setIsPluginListModalOpen(false);
           // 延迟隐藏窗口，让关闭动画完成
@@ -473,7 +473,7 @@ export function LauncherWindow() {
         }, 100);
       } else if (!focused) {
         // 当窗口失去焦点时，自动关闭搜索框
-        // 如果插件列表弹窗已打开，关闭插件列表并隐藏窗口
+        // 如果应用中心弹窗已打开，关闭应用中心并隐藏窗口
         if (isPluginListModalOpenRef.current) {
           setIsPluginListModalOpen(false);
           setTimeout(async () => {
@@ -2797,7 +2797,7 @@ export function LauncherWindow() {
     if (e.key === "Escape" || e.keyCode === 27) {
       e.preventDefault();
       e.stopPropagation();
-      // 如果插件列表弹窗已打开，关闭插件列表并隐藏窗口（插件像独立软件一样运行）
+      // 如果应用中心弹窗已打开，关闭应用中心并隐藏窗口（插件像独立软件一样运行）
       if (isPluginListModalOpen) {
         setIsPluginListModalOpen(false);
         // 延迟隐藏窗口，让关闭动画完成
@@ -2885,7 +2885,7 @@ export function LauncherWindow() {
         if (e.key === "Escape" || e.keyCode === 27) {
           e.preventDefault();
           e.stopPropagation();
-          // 如果插件列表弹窗已打开，关闭插件列表并隐藏窗口（插件像独立软件一样运行）
+          // 如果应用中心弹窗已打开，关闭应用中心并隐藏窗口（插件像独立软件一样运行）
           if (isPluginListModalOpen) {
             setIsPluginListModalOpen(false);
             // 延迟隐藏窗口，让关闭动画完成
@@ -2982,61 +2982,39 @@ export function LauncherWindow() {
                   e.stopPropagation();
                 }}
               />
-              {/* AI Assistant Icon Button */}
+              {/* 应用中心按钮 */}
               <div
                 className="relative flex items-center justify-center"
                 onMouseEnter={() => setIsHoveringAiIcon(true)}
                 onMouseLeave={() => setIsHoveringAiIcon(false)}
                 onClick={async (e) => {
                   e.stopPropagation();
-                  if (query.trim()) {
-                    await askOllama(query);
-                  } else {
-                    // 如果没有输入，可以显示提示或使用默认提示
-                    await askOllama('你好，请介绍一下你自己');
-                  }
+                  await tauriApi.showPluginListWindow();
+                  await tauriApi.hideLauncher();
                 }}
                 onMouseDown={(e) => {
                   // Prevent dragging when clicking on icon
                   e.stopPropagation();
                 }}
                 style={{ cursor: 'pointer', minWidth: '24px', minHeight: '24px' }}
-                title="询问AI"
+                title="应用中心"
               >
-                {isAiLoading ? (
-                  <svg
-                    className="w-5 h-5 text-blue-500 animate-spin"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                    />
-                  </svg>
-                ) : (
-                  <svg
-                    className={`w-5 h-5 transition-all ${
-                      isHoveringAiIcon ? 'text-blue-600 opacity-100' : 'text-gray-400 opacity-70'
-                    }`}
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    {/* AI/Robot Icon */}
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
-                    />
-                    <circle cx="9" cy="9" r="1" fill="currentColor"/>
-                    <circle cx="15" cy="9" r="1" fill="currentColor"/>
-                  </svg>
-                )}
+                <svg
+                  className={`w-5 h-5 transition-all ${
+                    isHoveringAiIcon ? 'text-blue-600 opacity-100' : 'text-gray-400 opacity-70'
+                  }`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  {/* 应用中心/插件图标 */}
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
+                  />
+                </svg>
               </div>
             </div>
           </div>
@@ -4299,13 +4277,13 @@ export function LauncherWindow() {
         </div>
       )}
 
-      {/* Plugin List Modal */}
+      {/* 应用中心弹窗 */}
       {isPluginListModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl flex flex-col m-4" style={{ maxHeight: '90vh' }}>
             {/* Header */}
             <div className="flex items-center justify-between p-4 border-b border-gray-200 flex-shrink-0">
-              <h2 className="text-lg font-semibold text-gray-800">插件列表</h2>
+              <h2 className="text-lg font-semibold text-gray-800">应用中心</h2>
               <button
                 onClick={async () => {
                   setIsPluginListModalOpen(false);

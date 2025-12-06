@@ -1775,13 +1775,13 @@ pub async fn show_plugin_list_window(app: tauri::AppHandle) -> Result<(), String
             "plugin-list-window",
             tauri::WebviewUrl::App("index.html".into()),
         )
-        .title("插件列表")
+        .title("应用中心")
         .inner_size(700.0, 600.0)
         .resizable(true)
         .min_inner_size(500.0, 400.0)
         .center()
         .build()
-        .map_err(|e| format!("创建插件列表窗口失败: {}", e))?;
+        .map_err(|e| format!("创建应用中心窗口失败: {}", e))?;
     }
 
     Ok(())

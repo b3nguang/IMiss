@@ -65,7 +65,7 @@ export function PluginListWindow() {
     <div className="h-screen w-screen flex flex-col bg-gray-50">
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-white">
-        <h2 className="text-lg font-semibold text-gray-800">插件列表</h2>
+        <h2 className="text-lg font-semibold text-gray-800">应用中心</h2>
         <button
           onClick={handleClose}
           className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded transition-colors"
