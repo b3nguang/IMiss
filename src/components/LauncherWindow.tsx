@@ -274,6 +274,25 @@ export function LauncherWindow() {
     setIsEditingMemo(false);
   };
 
+  // 统一处理窗口关闭和状态清理的公共函数
+  const hideLauncherAndResetState = async (options?: { resetMemo?: boolean; resetAi?: boolean }) => {
+    try {
+      await tauriApi.hideLauncher();
+      setQuery("");
+      setSelectedIndex(0);
+      setContextMenu(null);
+      if (options?.resetMemo) {
+        resetMemoState();
+      }
+      if (options?.resetAi) {
+        setShowAiAnswer(false);
+        setAiAnswer(null);
+      }
+    } catch (error) {
+      console.error("Failed to hide window:", error);
+    }
+  };
+
   // 插件列表已从 plugins/index.ts 导入
 
   // Load settings on mount and reload when settings window closes
@@ -494,12 +513,8 @@ export function LauncherWindow() {
         if (isPluginListModalOpenRef.current) {
           setIsPluginListModalOpen(false);
           // 延迟隐藏窗口，让关闭动画完成
-          setTimeout(async () => {
-            try {
-              await tauriApi.hideLauncher();
-            } catch (error) {
-              console.error("Failed to hide window:", error);
-            }
+          setTimeout(() => {
+            hideLauncherAndResetState();
           }, 100);
           return;
         }
@@ -507,12 +522,8 @@ export function LauncherWindow() {
         if (isMemoModalOpenRef.current) {
           resetMemoState();
           // 延迟隐藏窗口，让关闭动画完成
-          setTimeout(async () => {
-            try {
-              await tauriApi.hideLauncher();
-            } catch (error) {
-              console.error("Failed to hide window:", error);
-            }
+          setTimeout(() => {
+            hideLauncherAndResetState();
           }, 100);
           return;
         }
@@ -522,15 +533,7 @@ export function LauncherWindow() {
           setAiAnswer(null);
           return;
         }
-        try {
-          await tauriApi.hideLauncher();
-          setQuery("");
-          setSelectedIndex(0);
-          // 重置备忘录相关状态
-          resetMemoState();
-        } catch (error) {
-          console.error("Failed to hide window:", error);
-        }
+        await hideLauncherAndResetState({ resetMemo: true });
       }
     };
     
@@ -561,38 +564,21 @@ export function LauncherWindow() {
         // 如果应用中心弹窗已打开，关闭应用中心并隐藏窗口
         if (isPluginListModalOpenRef.current) {
           setIsPluginListModalOpen(false);
-          setTimeout(async () => {
-            try {
-              await tauriApi.hideLauncher();
-            } catch (error) {
-              console.error("Failed to hide window:", error);
-            }
+          setTimeout(() => {
+            hideLauncherAndResetState();
           }, 100);
           return;
         }
         // 如果备忘录弹窗已打开，关闭备忘录并隐藏窗口
         if (isMemoModalOpenRef.current) {
           resetMemoState();
-          setTimeout(async () => {
-            try {
-              await tauriApi.hideLauncher();
-            } catch (error) {
-              console.error("Failed to hide window:", error);
-            }
+          setTimeout(() => {
+            hideLauncherAndResetState();
           }, 100);
           return;
         }
         // 隐藏窗口并重置所有状态
-        try {
-          await tauriApi.hideLauncher();
-          setQuery("");
-          setSelectedIndex(0);
-          setShowAiAnswer(false);
-          setAiAnswer(null);
-          resetMemoState();
-        } catch (error) {
-          console.error("Failed to hide window:", error);
-        }
+        await hideLauncherAndResetState({ resetMemo: true, resetAi: true });
       }
     });
 
@@ -666,9 +652,7 @@ export function LauncherWindow() {
     if (!clipboardUrlToOpen) return;
     try {
       await tauriApi.openUrl(clipboardUrlToOpen);
-      await tauriApi.hideLauncher();
-      setQuery("");
-      setSelectedIndex(0);
+      await hideLauncherAndResetState();
     } catch (error) {
       console.error("Failed to open clipboard URL:", error);
       alert("打开链接失败，请稍后重试");
@@ -2720,9 +2704,7 @@ export function LauncherWindow() {
       } else if (result.type === "url" && result.url) {
         await tauriApi.openUrl(result.url);
         // 打开链接后隐藏启动器
-        await tauriApi.hideLauncher();
-        setQuery("");
-        setSelectedIndex(0);
+        await hideLauncherAndResetState();
         return;
       } else if (result.type === "json_formatter" && result.jsonContent) {
         // 打开 JSON 格式化窗口并传递 JSON 内容
@@ -2748,9 +2730,7 @@ export function LauncherWindow() {
           }
         }, 500);
         // 关闭启动器
-        await tauriApi.hideLauncher();
-        setQuery("");
-        setSelectedIndex(0);
+        await hideLauncherAndResetState();
         return;
       } else if (result.type === "history") {
         // 打开历史访问窗口
@@ -2762,9 +2742,7 @@ export function LauncherWindow() {
         try {
           await tauriApi.showSettingsWindow();
           // 关闭启动器
-          await tauriApi.hideLauncher();
-          setQuery("");
-          setSelectedIndex(0);
+          await hideLauncherAndResetState();
         } catch (error) {
           console.error("Failed to open settings window:", error);
           alert("打开设置窗口失败，请重试（详情见控制台日志）");
@@ -2789,9 +2767,7 @@ export function LauncherWindow() {
           console.error("Failed to add system folder to history:", error);
         }
         // 打开系统文件夹后隐藏启动器
-        await tauriApi.hideLauncher();
-        setQuery("");
-        setSelectedIndex(0);
+        await hideLauncherAndResetState();
         return;
       } else if (result.type === "memo" && result.memo) {
         // 打开备忘录详情弹窗（单条模式）
@@ -2825,12 +2801,11 @@ export function LauncherWindow() {
         // 插件执行后清理状态
         setQuery("");
         setSelectedIndex(0);
+        setContextMenu(null);
         return;
       }
       // Hide launcher window after launch
-      await tauriApi.hideLauncher();
-      setQuery("");
-      setSelectedIndex(0);
+      await hideLauncherAndResetState();
     } catch (error) {
       console.error("Failed to launch:", error);
     }
@@ -3065,12 +3040,8 @@ export function LauncherWindow() {
       if (isPluginListModalOpen) {
         setIsPluginListModalOpen(false);
         // 延迟隐藏窗口，让关闭动画完成
-        setTimeout(async () => {
-          try {
-            await tauriApi.hideLauncher();
-          } catch (error) {
-            console.error("Failed to hide window:", error);
-          }
+        setTimeout(() => {
+          hideLauncherAndResetState();
         }, 100);
         return;
       }
@@ -3078,24 +3049,12 @@ export function LauncherWindow() {
       if (isMemoModalOpen) {
         resetMemoState();
         // 延迟隐藏窗口，让关闭动画完成
-        setTimeout(async () => {
-          try {
-            await tauriApi.hideLauncher();
-          } catch (error) {
-            console.error("Failed to hide window:", error);
-          }
+        setTimeout(() => {
+          hideLauncherAndResetState();
         }, 100);
         return;
       }
-      try {
-        await tauriApi.hideLauncher();
-        setQuery("");
-        setSelectedIndex(0);
-        // 重置备忘录相关状态
-        resetMemoState();
-      } catch (error) {
-        console.error("Failed to hide window:", error);
-      }
+      await hideLauncherAndResetState({ resetMemo: true });
       return;
     }
 
@@ -3148,12 +3107,8 @@ export function LauncherWindow() {
           if (isPluginListModalOpen) {
             setIsPluginListModalOpen(false);
             // 延迟隐藏窗口，让关闭动画完成
-            setTimeout(async () => {
-              try {
-                await tauriApi.hideLauncher();
-              } catch (error) {
-                console.error("Failed to hide window:", error);
-              }
+            setTimeout(() => {
+              hideLauncherAndResetState();
             }, 100);
             return;
           }
@@ -3161,24 +3116,12 @@ export function LauncherWindow() {
           if (isMemoModalOpen) {
             resetMemoState();
             // 延迟隐藏窗口，让关闭动画完成
-            setTimeout(async () => {
-              try {
-                await tauriApi.hideLauncher();
-              } catch (error) {
-                console.error("Failed to hide window:", error);
-              }
+            setTimeout(() => {
+              hideLauncherAndResetState();
             }, 100);
             return;
           }
-          try {
-            await tauriApi.hideLauncher();
-            setQuery("");
-            setSelectedIndex(0);
-            // 重置备忘录相关状态
-            resetMemoState();
-          } catch (error) {
-            console.error("Failed to hide window:", error);
-          }
+          await hideLauncherAndResetState({ resetMemo: true });
         }
       }}
     >
@@ -3245,7 +3188,7 @@ export function LauncherWindow() {
                 onClick={async (e) => {
                   e.stopPropagation();
                   await tauriApi.showPluginListWindow();
-                  await tauriApi.hideLauncher();
+                  await hideLauncherAndResetState();
                 }}
                 onMouseDown={(e) => {
                   // Prevent dragging when clicking on icon
@@ -4170,12 +4113,8 @@ export function LauncherWindow() {
                       setSelectedMemo(null);
                       setIsEditingMemo(false);
                       // 延迟隐藏窗口，让关闭动画完成
-                      setTimeout(async () => {
-                        try {
-                          await tauriApi.hideLauncher();
-                        } catch (error) {
-                          console.error("Failed to hide window:", error);
-                        }
+                      setTimeout(() => {
+                        hideLauncherAndResetState({ resetMemo: true });
                       }, 100);
                     } else if (isEditingMemo && !selectedMemo) {
                       // 新建模式：返回列表
@@ -4258,10 +4197,7 @@ export function LauncherWindow() {
                                 const textToCopy = memo.title || "(无标题)";
                                 await navigator.clipboard.writeText(textToCopy);
                                 // 复制成功后关闭启动器
-                                await tauriApi.hideLauncher();
-                                setQuery("");
-                                setSelectedIndex(0);
-                                resetMemoState();
+                                await hideLauncherAndResetState({ resetMemo: true });
                               } catch (error) {
                                 console.error("Failed to copy to clipboard:", error);
                                 alert(`复制失败: ${error}`);
@@ -4500,12 +4436,8 @@ export function LauncherWindow() {
                 onClick={async () => {
                   setIsPluginListModalOpen(false);
                   // 延迟隐藏窗口，让关闭动画完成（插件像独立软件一样运行）
-                  setTimeout(async () => {
-                    try {
-                      await tauriApi.hideLauncher();
-                    } catch (error) {
-                      console.error("Failed to hide window:", error);
-                    }
+                  setTimeout(() => {
+                    hideLauncherAndResetState();
                   }, 100);
                 }}
                 className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded transition-colors"
@@ -4534,22 +4466,14 @@ export function LauncherWindow() {
                   };
                   await executePlugin(pluginId, pluginContext);
                   setIsPluginListModalOpen(false);
-                  setTimeout(async () => {
-                    try {
-                      await tauriApi.hideLauncher();
-                    } catch (error) {
-                      console.error("Failed to hide window:", error);
-                    }
+                  setTimeout(() => {
+                    hideLauncherAndResetState();
                   }, 100);
                 }}
                 onClose={async () => {
                   setIsPluginListModalOpen(false);
-                  setTimeout(async () => {
-                    try {
-                      await tauriApi.hideLauncher();
-                    } catch (error) {
-                      console.error("Failed to hide window:", error);
-                    }
+                  setTimeout(() => {
+                    hideLauncherAndResetState();
                   }, 100);
                 }}
               />
