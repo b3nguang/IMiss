@@ -108,6 +108,7 @@ export function OllamaSettingsPage({
 interface SystemSettingsProps {
   settings: {
     startup_enabled?: boolean;
+    result_style?: "compact" | "soft" | "skeuomorphic";
   };
   onSettingsChange: (settings: any) => void;
   onOpenHotkeySettings: () => void;
@@ -127,6 +128,31 @@ export function SystemSettingsPage({
 
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
         <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                搜索结果风格
+              </label>
+              <p className="text-xs text-gray-500">
+                在线性（紧凑）、渐变卡片与拟物风之间切换
+              </p>
+            </div>
+            <select
+              value={settings.result_style || "compact"}
+              onChange={(e) =>
+                onSettingsChange({
+                  ...settings,
+                  result_style: e.target.value as "compact" | "soft" | "skeuomorphic",
+                })
+              }
+              className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+            >
+              <option value="compact">紧凑线性</option>
+              <option value="soft">渐变卡片</option>
+              <option value="skeuomorphic">拟物风</option>
+            </select>
+          </div>
+
           <div className="flex items-center justify-between">
             <div className="flex-1">
               <label className="block text-sm font-medium text-gray-700 mb-1">

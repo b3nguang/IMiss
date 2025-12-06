@@ -26,6 +26,8 @@ type SearchResult = {
   path: string;
 };
 
+type ResultStyle = "compact" | "soft" | "skeuomorphic";
+
 export function LauncherWindow() {
   const [query, setQuery] = useState("");
   const [apps, setApps] = useState<AppInfo[]>([]);
@@ -70,6 +72,13 @@ export function LauncherWindow() {
   const [isPluginListModalOpen, setIsPluginListModalOpen] = useState(false);
   const [systemFolders, setSystemFolders] = useState<SystemFolderItem[]>([]);
   const [openHistory, setOpenHistory] = useState<Record<string, number>>({});
+  const [resultStyle, setResultStyle] = useState<ResultStyle>(() => {
+    const cached = localStorage.getItem("result-style");
+    if (cached === "soft" || cached === "skeuomorphic" || cached === "compact") {
+      return cached;
+    }
+    return "compact";
+  });
   const [windowWidth, setWindowWidth] = useState<number>(() => {
     // 从本地存储读取保存的宽度，默认600
     const saved = localStorage.getItem('launcher-window-width');
@@ -104,10 +113,19 @@ export function LauncherWindow() {
     isPluginListModalOpenRef.current = isPluginListModalOpen;
   }, [isPluginListModalOpen]);
 
-  // 动态注入滚动条样式，确保样式生效
+  // 动态注入滚动条样式，确保样式生效（随风格变化）
   // 注意：Windows 11 可能使用系统原生滚动条，webkit-scrollbar 样式可能不生效
   useEffect(() => {
     const styleId = 'custom-scrollbar-style';
+    const scrollbarSize = resultStyle === "soft" ? 20 : 12;
+    const trackBg = resultStyle === "soft" ? "#f0f0f0" : "#f8f9fb";
+    const trackBorder = resultStyle === "soft" ? "#e0e0e0" : "#eceff3";
+    const thumbBg = resultStyle === "soft" ? "#a0a0a0" : "#b6beca";
+    const thumbHover = resultStyle === "soft" ? "#888888" : "#9fa8b7";
+    const thumbActive = resultStyle === "soft" ? "#707070" : "#8893a3";
+    const thumbBorder = resultStyle === "soft" ? 4 : 3;
+    const thumbBorderBg = resultStyle === "soft" ? "#f0f0f0" : "#f8f9fb";
+    const minHeight = resultStyle === "soft" ? 40 : 32;
     
     const injectStyle = () => {
       // 如果样式已存在，先移除
@@ -120,21 +138,18 @@ export function LauncherWindow() {
       const style = document.createElement('style');
       style.id = styleId;
       style.textContent = `
-        /* 针对搜索结果列表的滚动条样式 - 宽滚动条，类似缩略图效果 */
-        /* 重要：不要使用 scrollbar-width 和 scrollbar-color，它们会与 -webkit-scrollbar 冲突 */
         .results-list-scroll {
-          overflow-y: scroll !important; /* 强制显示滚动轨道 */
+          overflow-y: scroll !important;
         }
         
         .results-list-scroll::-webkit-scrollbar {
-          width: 20px !important; /* 更宽的滚动条，适合缩略图效果 */
-          height: 20px !important;
+          width: ${scrollbarSize}px !important;
+          height: ${scrollbarSize}px !important;
           display: block !important;
           -webkit-appearance: none !important;
           background-color: transparent !important;
         }
         
-        /* 隐藏滚动条按钮（箭头） */
         .results-list-scroll::-webkit-scrollbar-button {
           display: none !important;
           width: 0 !important;
@@ -142,30 +157,30 @@ export function LauncherWindow() {
         }
         
         .results-list-scroll::-webkit-scrollbar-track {
-          background: #f0f0f0 !important; /* 稍深的轨道背景，增强对比 */
-          border-left: 1px solid #e0e0e0 !important;
+          background: ${trackBg} !important;
+          border-left: 1px solid ${trackBorder} !important;
         }
         
         .results-list-scroll::-webkit-scrollbar-thumb {
-          background-color: #a0a0a0 !important; /* 更深的灰色滑块，增强对比 */
-          border-radius: 10px !important; /* 圆角 */
-          border: 4px solid #f0f0f0 !important; /* 更大的边框，形成明显的缩略图间隙效果 */
-          background-clip: content-box !important; /* 关键：确保背景色只在内容区，配合 border 实现间隙 */
-          min-height: 40px !important;
+          background-color: ${thumbBg} !important;
+          border-radius: ${thumbBorder * 2}px !important;
+          border: ${thumbBorder}px solid ${thumbBorderBg} !important;
+          background-clip: content-box !important;
+          min-height: ${minHeight}px !important;
           transition: background-color 0.2s ease, box-shadow 0.2s ease !important;
-          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important; /* 添加阴影，增强悬浮感 */
+          box-shadow: none !important;
         }
         
         .results-list-scroll::-webkit-scrollbar-thumb:hover {
-          background-color: #888888 !important; /* 悬停时更深的灰色 */
-          border: 4px solid #f0f0f0 !important;
-          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15) !important; /* 悬停时阴影更深 */
+          background-color: ${thumbHover} !important;
+          border: ${thumbBorder}px solid ${resultStyle === "soft" ? "#f0f0f0" : "#f1f3f6"} !important;
+          box-shadow: none !important;
         }
         
         .results-list-scroll::-webkit-scrollbar-thumb:active {
-          background-color: #707070 !important; /* 点击时最深的灰色 */
-          border: 4px solid #f0f0f0 !important;
-          box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2) !important;
+          background-color: ${thumbActive} !important;
+          border: ${thumbBorder}px solid ${resultStyle === "soft" ? "#f0f0f0" : "#e8ecf2"} !important;
+          box-shadow: none !important;
         }
       `;
       document.head.appendChild(style);
@@ -200,7 +215,7 @@ export function LauncherWindow() {
         styleToRemove.remove();
       }
     };
-  }, []);
+  }, [resultStyle]);
 
   // 重置备忘录相关状态的辅助函数
   const resetMemoState = () => {
@@ -220,6 +235,16 @@ export function LauncherWindow() {
       try {
         const settings = await tauriApi.getSettings();
         setOllamaSettings(settings.ollama);
+        const styleFromSettings = (settings.result_style as ResultStyle) || null;
+        const styleFromCache = localStorage.getItem("result-style");
+        const fallback =
+          styleFromSettings && ["compact", "soft", "skeuomorphic"].includes(styleFromSettings)
+            ? styleFromSettings
+            : styleFromCache && ["compact", "soft", "skeuomorphic"].includes(styleFromCache)
+            ? (styleFromCache as ResultStyle)
+            : "compact";
+        setResultStyle(fallback);
+        localStorage.setItem("result-style", fallback);
       } catch (error) {
         console.error("Failed to load settings:", error);
       }
@@ -682,9 +707,87 @@ export function LauncherWindow() {
     
     // Replace matches with highlighted version
     return escapedText.replace(pattern, (match) => {
-      return `<span class="text-orange-600 dark:text-orange-400 font-semibold bg-transparent">${match}</span>`;
+      return `<span class="highlight-match font-semibold">${match}</span>`;
     });
   };
+
+  const theme = useMemo(() => {
+    const compact = {
+      card: (selected: boolean) =>
+        `group relative mx-2 my-1 px-3.5 py-2.5 rounded-lg border cursor-pointer transition-colors duration-150 ${
+          selected
+            ? "bg-indigo-50 text-gray-900 border-indigo-200"
+            : "bg-white text-gray-800 border-gray-100 hover:bg-gray-50 hover:border-gray-200"
+        }`,
+      indicator: (selected: boolean) =>
+        `absolute left-0 top-2 bottom-2 w-[2px] rounded-full transition-opacity ${
+          selected ? "bg-indigo-500 opacity-100" : "bg-indigo-300 opacity-0 group-hover:opacity-70"
+        }`,
+      indexBadge: (selected: boolean) =>
+        `text-[11px] font-semibold flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center transition-colors ${
+          selected ? "bg-indigo-500 text-white" : "bg-gray-100 text-gray-500 group-hover:bg-gray-200"
+        }`,
+      iconWrap: (selected: boolean) =>
+        `w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0 overflow-hidden transition-colors duration-150 ${
+          selected ? "bg-indigo-100 border border-indigo-200" : "bg-gray-50 border border-gray-100 group-hover:border-gray-200"
+        }`,
+      iconColor: (selected: boolean, defaultColor: string) => (selected ? "text-indigo-600" : defaultColor),
+      title: (selected: boolean) => (selected ? "text-indigo-900" : "text-gray-900"),
+      aiText: (selected: boolean) => (selected ? "text-indigo-800" : "text-gray-600"),
+      pathText: (selected: boolean) => (selected ? "text-indigo-700" : "text-gray-500"),
+      metaText: (selected: boolean) => (selected ? "text-indigo-700" : "text-gray-500"),
+      descText: (selected: boolean) => (selected ? "text-indigo-800" : "text-gray-600"),
+      usageText: (selected: boolean) => (selected ? "text-indigo-700" : "text-gray-500"),
+      tag: (_type: string, selected: boolean) =>
+        selected
+          ? "bg-indigo-100 text-indigo-700 border border-indigo-200"
+          : "bg-gray-100 text-gray-600 border border-gray-200",
+    };
+
+    const soft = {
+      card: (selected: boolean) =>
+        `group relative mx-2 my-1.5 px-4 py-3 rounded-xl cursor-pointer transition-all duration-200 ${
+          selected
+            ? "bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-lg shadow-blue-500/30 scale-[1.02]"
+            : "hover:bg-gray-50 text-gray-700 hover:shadow-md"
+        }`,
+      indicator: (selected: boolean) =>
+        `absolute left-0 top-2 bottom-2 w-1 rounded-full transition-opacity ${
+          selected ? "bg-blue-200 opacity-80" : "opacity-0"
+        }`,
+      indexBadge: (selected: boolean) =>
+        `text-xs font-semibold flex-shrink-0 w-7 h-7 rounded-md flex items-center justify-center transition-all ${
+          selected ? "bg-white/20 text-white backdrop-blur-sm" : "bg-gray-100 text-gray-500 group-hover:bg-gray-200"
+        }`,
+      iconWrap: (selected: boolean) =>
+        `w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden transition-all duration-200 shadow-sm ${
+          selected
+            ? "bg-white/20 backdrop-blur-sm ring-2 ring-white/30"
+            : "bg-gradient-to-br from-gray-50 to-gray-100 group-hover:from-gray-100 group-hover:to-gray-200"
+        }`,
+      iconColor: (selected: boolean, defaultColor: string) => (selected ? "text-white" : defaultColor),
+      title: (selected: boolean) => (selected ? "text-white" : "text-gray-900"),
+      aiText: (selected: boolean) => (selected ? "text-blue-50" : "text-gray-600"),
+      pathText: (selected: boolean) => (selected ? "text-blue-100/90" : "text-gray-500"),
+      metaText: (selected: boolean) => (selected ? "text-purple-200" : "text-gray-400"),
+      descText: (selected: boolean) => (selected ? "text-green-200" : "text-gray-500"),
+      usageText: (selected: boolean) => (selected ? "text-blue-200" : "text-gray-400"),
+      tag: (type: string, selected: boolean) => {
+        const map: Record<string, string> = {
+          url: selected ? "bg-blue-400 text-white" : "bg-blue-100 text-blue-700 border border-blue-200",
+          json_formatter: selected ? "bg-indigo-400 text-white" : "bg-indigo-100 text-indigo-700 border border-indigo-200",
+          memo: selected ? "bg-purple-400 text-white" : "bg-purple-100 text-purple-700 border border-purple-200",
+          everything: selected ? "bg-green-400 text-white" : "bg-green-100 text-green-700 border border-green-200",
+          default: selected ? "bg-white/20 text-white backdrop-blur-sm" : "bg-gray-50 text-gray-600 border border-gray-200",
+        };
+        return map[type] || map.default;
+      },
+    };
+
+    if (resultStyle === "soft") return soft;
+    if (resultStyle === "skeuomorphic") return soft; // 预留：后续可替换为拟物配置
+    return compact;
+  }, [resultStyle]);
 
   // Call Ollama API to ask AI (流式请求)
   const askOllama = async (prompt: string) => {
@@ -3212,7 +3315,7 @@ export function LauncherWindow() {
           ) : results.length > 0 ? (
             <div
               ref={listRef}
-              className="flex-1 overflow-y-auto min-h-0 results-list-scroll"
+              className="flex-1 overflow-y-auto min-h-0 results-list-scroll py-2"
               style={{ maxHeight: '500px' }}
             >
               {results.map((result, index) => (
@@ -3220,22 +3323,18 @@ export function LauncherWindow() {
                   key={`${result.type}-${result.path}-${index}`}
                   onClick={() => handleLaunch(result)}
                   onContextMenu={(e) => handleContextMenu(e, result)}
-                  className={`px-6 py-3 cursor-pointer transition-all ${
-                    index === selectedIndex
-                      ? "bg-blue-500 text-white"
-                      : "hover:bg-gray-50 text-gray-700"
-                  }`}
+                  className={theme.card(index === selectedIndex)}
+                  style={{
+                    animation: `fadeInUp 0.18s ease-out ${index * 0.02}s both`,
+                  }}
                 >
+                  <div className={theme.indicator(index === selectedIndex)} />
                   <div className="flex items-center gap-3">
                     {/* 序号 */}
-                    <div className={`text-sm font-medium flex-shrink-0 w-8 text-center ${
-                      index === selectedIndex ? "text-white" : "text-gray-400"
-                    }`}>
+                    <div className={theme.indexBadge(index === selectedIndex)}>
                       {index + 1}
                     </div>
-                    <div className={`w-8 h-8 rounded flex items-center justify-center flex-shrink-0 overflow-hidden ${
-                      index === selectedIndex ? "bg-blue-400" : "bg-gray-200"
-                    }`}>
+                    <div className={theme.iconWrap(index === selectedIndex)}>
                       {result.type === "app" && result.app?.icon ? (
                         <img 
                           src={result.app.icon} 
@@ -3265,9 +3364,7 @@ export function LauncherWindow() {
                         />
                       ) : result.type === "url" ? (
                         <svg
-                          className={`w-5 h-5 ${
-                            index === selectedIndex ? "text-white" : "text-blue-500"
-                          }`}
+                          className={`w-5 h-5 ${theme.iconColor(index === selectedIndex, "text-blue-500")}`}
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"
@@ -3281,9 +3378,7 @@ export function LauncherWindow() {
                         </svg>
                       ) : result.type === "memo" ? (
                         <svg
-                          className={`w-5 h-5 ${
-                            index === selectedIndex ? "text-white" : "text-purple-500"
-                          }`}
+                          className={`w-5 h-5 ${theme.iconColor(index === selectedIndex, "text-purple-500")}`}
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"
@@ -3297,9 +3392,7 @@ export function LauncherWindow() {
                         </svg>
                       ) : result.type === "plugin" ? (
                         <svg
-                          className={`w-5 h-5 ${
-                            index === selectedIndex ? "text-white" : "text-purple-500"
-                          }`}
+                          className={`w-5 h-5 ${theme.iconColor(index === selectedIndex, "text-purple-500")}`}
                           fill="currentColor"
                           viewBox="0 0 24 24"
                         >
@@ -3307,9 +3400,7 @@ export function LauncherWindow() {
                         </svg>
                       ) : result.type === "history" ? (
                         <svg
-                          className={`w-5 h-5 ${
-                            index === selectedIndex ? "text-white" : "text-orange-500"
-                          }`}
+                          className={`w-5 h-5 ${theme.iconColor(index === selectedIndex, "text-orange-500")}`}
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"
@@ -3323,9 +3414,7 @@ export function LauncherWindow() {
                         </svg>
                       ) : result.type === "settings" ? (
                         <svg
-                          className={`w-5 h-5 ${
-                            index === selectedIndex ? "text-white" : "text-gray-600"
-                          }`}
+                          className={`w-5 h-5 ${theme.iconColor(index === selectedIndex, "text-gray-600")}`}
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"
@@ -3345,9 +3434,7 @@ export function LauncherWindow() {
                         </svg>
                       ) : result.type === "ai" ? (
                         <svg
-                          className={`w-5 h-5 ${
-                            index === selectedIndex ? "text-white" : "text-blue-500"
-                          }`}
+                          className={`w-5 h-5 ${theme.iconColor(index === selectedIndex, "text-blue-500")}`}
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"
@@ -3363,9 +3450,7 @@ export function LauncherWindow() {
                         </svg>
                       ) : result.type === "json_formatter" ? (
                         <svg
-                          className={`w-5 h-5 ${
-                            index === selectedIndex ? "text-white" : "text-indigo-500"
-                          }`}
+                          className={`w-5 h-5 ${theme.iconColor(index === selectedIndex, "text-indigo-500")}`}
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"
@@ -3388,9 +3473,7 @@ export function LauncherWindow() {
                             : isFolderLikePath(result.path))) ? (
                         // 文件夹（历史记录或 Everything 结果）
                         <svg
-                          className={`w-5 h-5 ${
-                            index === selectedIndex ? "text-white" : "text-amber-500"
-                          }`}
+                          className={`w-5 h-5 ${theme.iconColor(index === selectedIndex, "text-amber-500")}`}
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"
@@ -3404,9 +3487,7 @@ export function LauncherWindow() {
                         </svg>
                       ) : result.type === "file" || result.type === "everything" || result.type === "system_folder" ? (
                         <svg
-                          className={`w-5 h-5 ${
-                            index === selectedIndex ? "text-white" : "text-gray-500"
-                          }`}
+                          className={`w-5 h-5 ${theme.iconColor(index === selectedIndex, "text-gray-500")}`}
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"
@@ -3420,9 +3501,7 @@ export function LauncherWindow() {
                         </svg>
                       ) : (
                         <svg
-                          className={`w-5 h-5 ${
-                            index === selectedIndex ? "text-white" : "text-gray-500"
-                          }`}
+                          className={`w-5 h-5 ${theme.iconColor(index === selectedIndex, "text-gray-500")}`}
                           fill="none"
                           stroke="currentColor"
                           viewBox="0 0 24 24"
@@ -3437,15 +3516,13 @@ export function LauncherWindow() {
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div 
-                        className="font-medium truncate"
+                    <div 
+                        className={`font-semibold truncate mb-0.5 ${theme.title(index === selectedIndex)}`}
                         dangerouslySetInnerHTML={{ __html: highlightText(result.displayName, query) }}
                       />
                       {result.type === "ai" && result.aiAnswer && (
                         <div
-                          className={`text-sm mt-1 ${
-                            index === selectedIndex ? "text-blue-100" : "text-gray-600"
-                          }`}
+                          className={`text-sm mt-1.5 leading-relaxed ${theme.aiText(index === selectedIndex)}`}
                           style={{
                             whiteSpace: "pre-wrap",
                             wordBreak: "break-word",
@@ -3458,46 +3535,34 @@ export function LauncherWindow() {
                       )}
                       {result.path && result.type !== "memo" && result.type !== "history" && result.type !== "ai" && (
                         <div
-                          className={`text-sm truncate ${
-                            index === selectedIndex ? "text-blue-100" : "text-gray-500"
-                          }`}
+                          className={`text-xs truncate mt-0.5 ${theme.pathText(index === selectedIndex)}`}
                           dangerouslySetInnerHTML={{ __html: highlightText(result.path, query) }}
                         />
                       )}
                       {result.type === "memo" && result.memo && (
                         <div
-                          className={`text-xs ${
-                            index === selectedIndex ? "text-purple-200" : "text-gray-400"
-                          }`}
+                          className={`text-xs mt-0.5 ${theme.metaText(index === selectedIndex)}`}
                         >
                           {new Date(result.memo.updated_at * 1000).toLocaleDateString("zh-CN")}
                         </div>
                       )}
                       {result.type === "plugin" && result.plugin?.description && (
                         <div
-                          className={`text-xs ${
-                            index === selectedIndex ? "text-green-200" : "text-gray-400"
-                          }`}
+                          className={`text-xs mt-0.5 leading-relaxed ${theme.descText(index === selectedIndex)}`}
                           dangerouslySetInnerHTML={{ __html: highlightText(result.plugin.description, query) }}
                         />
                       )}
                       {result.type === "file" && result.file && (
                         <div
-                          className={`text-xs ${
-                            index === selectedIndex ? "text-blue-200" : "text-gray-400"
-                          }`}
+                          className={`text-xs mt-0.5 ${theme.usageText(index === selectedIndex)}`}
                         >
                           使用 {result.file.use_count} 次
                         </div>
                       )}
                       {result.type === "url" && (
-                        <div className="flex items-center gap-2 mt-1">
+                        <div className="flex items-center gap-2 mt-1.5">
                           <span
-                            className={`text-xs px-2 py-0.5 rounded ${
-                              index === selectedIndex
-                                ? "bg-blue-400 text-white"
-                                : "bg-blue-100 text-blue-700"
-                            }`}
+                            className={`text-xs px-2.5 py-1 rounded-md font-medium transition-all ${theme.tag("url", index === selectedIndex)}`}
                             title="可打开的 URL"
                           >
                             URL
@@ -3505,13 +3570,9 @@ export function LauncherWindow() {
                         </div>
                       )}
                       {result.type === "json_formatter" && (
-                        <div className="flex items-center gap-2 mt-1">
+                        <div className="flex items-center gap-2 mt-1.5">
                           <span
-                            className={`text-xs px-2 py-0.5 rounded ${
-                              index === selectedIndex
-                                ? "bg-indigo-400 text-white"
-                                : "bg-indigo-100 text-indigo-700"
-                            }`}
+                            className={`text-xs px-2.5 py-1 rounded-md font-medium transition-all ${theme.tag("json_formatter", index === selectedIndex)}`}
                             title="JSON 格式化查看器"
                           >
                             JSON
@@ -3519,22 +3580,16 @@ export function LauncherWindow() {
                         </div>
                       )}
                       {result.type === "memo" && result.memo && (
-                        <div className="flex items-center gap-2 mt-1">
+                        <div className="flex items-center gap-2 mt-1.5">
                           <span
-                            className={`text-xs px-2 py-0.5 rounded ${
-                              index === selectedIndex
-                                ? "bg-purple-400 text-white"
-                                : "bg-purple-100 text-purple-700"
-                            }`}
+                            className={`text-xs px-2.5 py-1 rounded-md font-medium transition-all ${theme.tag("memo", index === selectedIndex)}`}
                             title="备忘录"
                           >
                             备忘录
                           </span>
                           {result.memo.content && (
                             <span
-                              className={`text-xs truncate ${
-                                index === selectedIndex ? "text-purple-200" : "text-gray-400"
-                              }`}
+                              className={`text-xs truncate ${theme.metaText(index === selectedIndex)}`}
                               dangerouslySetInnerHTML={{ 
                                 __html: highlightText(
                                   result.memo.content.slice(0, 50) + (result.memo.content.length > 50 ? "..." : ""),
@@ -3546,13 +3601,9 @@ export function LauncherWindow() {
                         </div>
                       )}
                       {result.type === "everything" && (
-                        <div className="flex items-center gap-2 mt-1">
+                        <div className="flex items-center gap-2 mt-1.5">
                           <span
-                            className={`text-xs px-2 py-0.5 rounded ${
-                              index === selectedIndex
-                                ? "bg-blue-400 text-white"
-                                : "bg-green-100 text-green-700"
-                            }`}
+                            className={`text-xs px-2.5 py-1 rounded-md font-medium transition-all ${theme.tag("everything", index === selectedIndex)}`}
                             title="来自 Everything 搜索结果"
                           >
                             Everything

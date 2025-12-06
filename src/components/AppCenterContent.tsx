@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { plugins, executePlugin } from "../plugins";
 import type { PluginContext } from "../types";
 import { tauriApi } from "../api/tauri";
@@ -18,6 +18,7 @@ interface Settings {
     base_url: string;
   };
   startup_enabled?: boolean;
+  result_style?: "compact" | "soft" | "skeuomorphic";
 }
 
 interface MenuItem {
@@ -73,12 +74,15 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
       base_url: "http://localhost:11434",
     },
     startup_enabled: false,
+    result_style: "compact",
   });
   const [isLoadingSettings, setIsLoadingSettings] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const hasLoadedSettingsRef = useRef(false);
+  const saveTimerRef = useRef<number | null>(null);
 
   // 处理插件点击
   const handlePluginClick = async (pluginId: string) => {
@@ -110,6 +114,7 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
       setSettings({
         ...data,
         startup_enabled: startupEnabled,
+        result_style: data.result_style || (localStorage.getItem("result-style") as Settings["result_style"]) || "compact",
       });
     } catch (error) {
       console.error("Failed to load settings:", error);
@@ -122,11 +127,15 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
   const saveSettings = async () => {
     try {
       setIsSaving(true);
-      setSaveMessage(null);
+      setSaveMessage("正在保存...");
       await tauriApi.saveSettings(settings);
       // 保存开机启动设置
       if (settings.startup_enabled !== undefined) {
         await tauriApi.setStartupEnabled(settings.startup_enabled);
+      }
+      // 本地缓存样式，避免后端旧版本未持久化时丢失
+      if (settings.result_style) {
+        localStorage.setItem("result-style", settings.result_style);
       }
       setSaveMessage("设置已保存");
       setTimeout(() => setSaveMessage(null), 2000);
@@ -141,6 +150,39 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
       setIsSaving(false);
     }
   };
+
+  // 设置变更自动保存（防抖处理）
+  useEffect(() => {
+    if (isLoadingSettings) return;
+
+    if (!hasLoadedSettingsRef.current) {
+      hasLoadedSettingsRef.current = true;
+      return;
+    }
+
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current);
+    }
+
+    saveTimerRef.current = window.setTimeout(() => {
+      saveSettings();
+    }, 400);
+
+    return () => {
+      if (saveTimerRef.current) {
+        window.clearTimeout(saveTimerRef.current);
+      }
+    };
+  }, [settings, isLoadingSettings]);
+
+  // 卸载时清理定时器
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) {
+        window.clearTimeout(saveTimerRef.current);
+      }
+    };
+  }, []);
 
   // 测试连接
   const testConnection = async () => {
@@ -466,8 +508,8 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
         return (
           <div className="flex-1 flex overflow-hidden">
             {/* 设置子导航 */}
-            <div className="w-48 border-r border-gray-200 bg-white flex-shrink-0 overflow-y-auto">
-              <nav className="p-4">
+            <div className="w-48 border-r border-gray-200 bg-white flex-shrink-0 flex flex-col">
+              <nav className="p-4 flex-1 overflow-y-auto">
                 <ul className="space-y-1">
                   {settingsMenuItems.map((item) => (
                     <li key={item.id}>
@@ -486,29 +528,27 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
                   ))}
                 </ul>
               </nav>
-              
-              {/* 保存按钮 */}
-              <div className="p-4 border-t border-gray-200">
-                <button
-                  onClick={saveSettings}
-                  disabled={isSaving}
-                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors text-sm font-medium"
-                >
-                  {isSaving ? "保存中..." : "保存设置"}
-                </button>
-                {saveMessage && (
-                  <div className={`mt-2 text-xs text-center ${
-                    saveMessage === "设置已保存" ? "text-green-600" : "text-red-600"
-                  }`}>
-                    {saveMessage}
-                  </div>
-                )}
-              </div>
             </div>
 
             {/* 设置内容区域 */}
             <div className="flex-1 overflow-y-auto bg-gray-50">
               <div className="p-6 max-w-4xl">
+                {saveMessage && (
+                  <div
+                    className={`mb-4 text-sm px-3 py-2 rounded-md inline-flex items-center gap-2 ${
+                      saveMessage === "设置已保存"
+                        ? "bg-green-50 text-green-700 border border-green-200"
+                        : saveMessage === "正在保存..."
+                          ? "bg-blue-50 text-blue-700 border border-blue-200"
+                          : "bg-red-50 text-red-700 border border-red-200"
+                    }`}
+                  >
+                    {(isSaving || saveMessage === "正在保存...") && (
+                      <span className="w-2 h-2 rounded-full bg-blue-500 animate-ping" />
+                    )}
+                    <span>{saveMessage}</span>
+                  </div>
+                )}
                 {activeSettingsPage === "ollama" && (
                   <OllamaSettingsPage
                     settings={settings}
