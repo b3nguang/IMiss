@@ -328,7 +328,7 @@ export function AboutSettingsPage({}: AboutSettingsProps) {
 
           <div className="border-t border-gray-200 pt-6">
             <div className="text-xs text-gray-500 text-center">
-              <p>© 2024 ReFast</p>
+              <p>© 2025 ReFast</p>
               <p className="mt-1">MIT License</p>
             </div>
           </div>
