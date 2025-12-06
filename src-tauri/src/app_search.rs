@@ -176,6 +176,29 @@ pub mod windows {
     /// Enumerate Microsoft Store / UWP apps using PowerShell Get-StartApps.
     /// Produces shell:AppsFolder targets so they can be launched via ShellExecute.
     fn scan_uwp_apps() -> Result<Vec<AppInfo>, String> {
+        fn decode_powershell_output(bytes: &[u8]) -> Result<String, String> {
+            if bytes.is_empty() {
+                return Ok(String::new());
+            }
+
+            // PowerShell 5 默认 UTF-16LE，无 BOM 时也尝试按 UTF-16LE 解析
+            if bytes.len() % 2 == 0 {
+                let has_bom = bytes.starts_with(&[0xFF, 0xFE]);
+                let utf16_units: Vec<u16> = bytes
+                    .chunks(2)
+                    .skip(if has_bom { 1 } else { 0 })
+                    .map(|c| u16::from_le_bytes([c[0], c.get(1).copied().unwrap_or(0)]))
+                    .collect();
+
+                if let Ok(s) = String::from_utf16(&utf16_units) {
+                    return Ok(s);
+                }
+            }
+
+            String::from_utf8(bytes.to_vec())
+                .map_err(|e| format!("Failed to decode PowerShell output: {}", e))
+        }
+
         // PowerShell script: list Name/AppID and convert to JSON
         let script = r#"
         try {
@@ -197,11 +220,11 @@ pub mod windows {
             .map_err(|e| format!("Failed to run PowerShell: {}", e))?;
 
         if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stderr = decode_powershell_output(&output.stderr)?;
             return Err(format!("PowerShell Get-StartApps failed: {}", stderr));
         }
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stdout = decode_powershell_output(&output.stdout)?;
         let stdout_trimmed = stdout.trim();
         if stdout_trimmed.is_empty() {
             return Ok(Vec::new());
