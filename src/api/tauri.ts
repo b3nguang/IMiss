@@ -59,6 +59,10 @@ export const tauriApi = {
     return invoke("rescan_applications");
   },
 
+  async populateAppIcons(limit?: number): Promise<AppInfo[]> {
+    return invoke("populate_app_icons", { limit });
+  },
+
   async searchApplications(query: string): Promise<AppInfo[]> {
     return invoke("search_applications", { query });
   },

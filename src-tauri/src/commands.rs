@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, UNIX_EPOCH};
-use tauri::{Emitter, Manager};
+use tauri::{async_runtime, Emitter, Manager};
 
 static RECORDING_STATE: LazyLock<Arc<Mutex<RecordingState>>> =
     LazyLock::new(|| Arc::new(Mutex::new(RecordingState::new())));
@@ -466,61 +466,71 @@ pub fn get_playback_progress() -> Result<f32, String> {
 }
 
 #[tauri::command]
-pub fn scan_applications(app: tauri::AppHandle) -> Result<Vec<app_search::AppInfo>, String> {
-    let cache = APP_CACHE.clone();
-    let mut cache_guard = cache.lock().map_err(|e| e.to_string())?;
+pub async fn scan_applications(app: tauri::AppHandle) -> Result<Vec<app_search::AppInfo>, String> {
+    let app_clone = app.clone();
+    async_runtime::spawn_blocking(move || {
+        let cache = APP_CACHE.clone();
+        let mut cache_guard = cache.lock().map_err(|e| e.to_string())?;
 
-    // Return cached apps if available
-    if let Some(ref apps) = *cache_guard {
-        return Ok(apps.clone());
-    }
-
-    // Try to load from disk cache first
-    let app_data_dir = get_app_data_dir(&app)?;
-    if let Ok(disk_cache) = app_search::windows::load_cache(&app_data_dir) {
-        if !disk_cache.is_empty() {
-            *cache_guard = Some(disk_cache.clone());
-            // Return cached apps immediately, no background scan
-            return Ok(disk_cache);
+        // Return cached apps if available
+        if let Some(ref apps) = *cache_guard {
+            return Ok(apps.clone());
         }
-    }
 
-    // Scan applications (synchronous, but should be fast now without .lnk parsing)
-    let apps = app_search::windows::scan_start_menu()?;
+        // Try to load from disk cache first
+        let app_data_dir = get_app_data_dir(&app_clone)?;
+        if let Ok(disk_cache) = app_search::windows::load_cache(&app_data_dir) {
+            if !disk_cache.is_empty() {
+                *cache_guard = Some(disk_cache.clone());
+                // Return cached apps immediately, no background scan
+                return Ok(disk_cache);
+            }
+        }
 
-    // Cache the results
-    *cache_guard = Some(apps.clone());
+        // Scan applications (potentially slow) on background thread
+        let apps = app_search::windows::scan_start_menu()?;
 
-    // Save to disk cache
-    let _ = app_search::windows::save_cache(&app_data_dir, &apps);
+        // Cache the results
+        *cache_guard = Some(apps.clone());
 
-    // No background icon extraction - icons will be extracted on-demand during search
-    Ok(apps)
+        // Save to disk cache
+        let _ = app_search::windows::save_cache(&app_data_dir, &apps);
+
+        // No background icon extraction - icons will be extracted on-demand during search
+        Ok(apps)
+    })
+    .await
+    .map_err(|e| format!("scan_applications join error: {}", e))?
 }
 
 #[tauri::command]
-pub fn rescan_applications(app: tauri::AppHandle) -> Result<Vec<app_search::AppInfo>, String> {
-    let cache = APP_CACHE.clone();
-    let mut cache_guard = cache.lock().map_err(|e| e.to_string())?;
+pub async fn rescan_applications(app: tauri::AppHandle) -> Result<Vec<app_search::AppInfo>, String> {
+    let app_clone = app.clone();
+    async_runtime::spawn_blocking(move || {
+        let cache = APP_CACHE.clone();
+        let mut cache_guard = cache.lock().map_err(|e| e.to_string())?;
 
-    // Clear memory cache
-    *cache_guard = None;
+        // Clear memory cache
+        *cache_guard = None;
 
-    // Clear disk cache
-    let app_data_dir = get_app_data_dir(&app)?;
-    let cache_file = app_search::windows::get_cache_file_path(&app_data_dir);
-    let _ = fs::remove_file(&cache_file); // Ignore errors if file doesn't exist
+        // Clear disk cache
+        let app_data_dir = get_app_data_dir(&app_clone)?;
+        let cache_file = app_search::windows::get_cache_file_path(&app_data_dir);
+        let _ = fs::remove_file(&cache_file); // Ignore errors if file doesn't exist
 
-    // Force rescan
-    let apps = app_search::windows::scan_start_menu()?;
+        // Force rescan
+        let apps = app_search::windows::scan_start_menu()?;
 
-    // Cache the results
-    *cache_guard = Some(apps.clone());
+        // Cache the results
+        *cache_guard = Some(apps.clone());
 
-    // Save to disk cache
-    let _ = app_search::windows::save_cache(&app_data_dir, &apps);
+        // Save to disk cache
+        let _ = app_search::windows::save_cache(&app_data_dir, &apps);
 
-    Ok(apps)
+        Ok(apps)
+    })
+    .await
+    .map_err(|e| format!("rescan_applications join error: {}", e))?
 }
 
 #[tauri::command]
@@ -590,6 +600,69 @@ pub fn search_applications(
     });
 
     Ok(results)
+}
+
+/// Populate icons for cached applications (best-effort, limited to avoid long blocks).
+/// Returns the updated app list (with any newly extracted icons).
+#[tauri::command]
+pub async fn populate_app_icons(
+    app: tauri::AppHandle,
+    limit: Option<usize>,
+) -> Result<Vec<app_search::AppInfo>, String> {
+    let app_clone = app.clone();
+    async_runtime::spawn_blocking(move || {
+        let max_to_process = limit.unwrap_or(100);
+
+        let cache = APP_CACHE.clone();
+        let mut cache_guard = cache.lock().map_err(|e| e.to_string())?;
+
+        let apps = cache_guard.as_mut().ok_or_else(|| {
+            "Applications not scanned yet. Call scan_applications first.".to_string()
+        })?;
+
+        let mut processed = 0usize;
+        let mut updated = false;
+
+        for app_info in apps.iter_mut() {
+            if processed >= max_to_process {
+                break;
+            }
+
+            if app_info.icon.is_some() {
+                continue;
+            }
+
+            let path = Path::new(&app_info.path);
+            let ext = path
+                .extension()
+                .and_then(|s| s.to_str())
+                .map(|s| s.to_lowercase());
+
+            let icon = if ext == Some("lnk".to_string()) {
+                app_search::windows::extract_lnk_icon_base64(path)
+            } else if ext == Some("exe".to_string()) {
+                app_search::windows::extract_icon_base64(path)
+            } else {
+                None
+            };
+
+            if let Some(icon_data) = icon {
+                app_info.icon = Some(icon_data);
+                updated = true;
+            }
+
+            processed += 1;
+        }
+
+        if updated {
+            let app_data_dir = get_app_data_dir(&app_clone)?;
+            let _ = app_search::windows::save_cache(&app_data_dir, &apps);
+        }
+
+        Ok(apps.clone())
+    })
+    .await
+    .map_err(|e| format!("populate_app_icons join error: {}", e))?
 }
 
 #[tauri::command]

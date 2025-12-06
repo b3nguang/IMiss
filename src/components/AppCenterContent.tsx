@@ -557,11 +557,27 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
   };
 
   const loadAppIndexList = async (forceRescan = false) => {
+    if (appIndexLoading) return;
     try {
       setAppIndexLoading(true);
       setAppIndexError(null);
+
+      // Yield to UI so loading状态能先渲染，避免感觉“卡住”
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
       const data = forceRescan ? await tauriApi.rescanApplications() : await tauriApi.scanApplications();
       setAppIndexList(data);
+
+      // Best-effort icon population for the loaded apps (run asynchronously to avoid blocking UI)
+      (async () => {
+        try {
+          const iconLimit = forceRescan ? 50 : 80;
+          const withIcons = await tauriApi.populateAppIcons(iconLimit);
+          setAppIndexList(withIcons);
+        } catch (iconError) {
+          console.warn("应用索引图标补全失败:", iconError);
+        }
+      })();
     } catch (error: any) {
       console.error("获取应用索引列表失败:", error);
       setAppIndexError(error?.message || "获取应用索引列表失败");
