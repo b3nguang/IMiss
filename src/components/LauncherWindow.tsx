@@ -1172,7 +1172,10 @@ export function LauncherWindow() {
     }
     
     // 如果查询与上次相同，跳过搜索（去重机制）
-    if (trimmedQuery === lastSearchQueryRef.current) {
+    // 但是，如果结果为空（可能是用户全选后再次输入相同内容导致结果被清空），应该重新搜索
+    const hasResults = filteredApps.length > 0 || filteredFiles.length > 0 || filteredMemos.length > 0 || 
+                       filteredPlugins.length > 0 || systemFolders.length > 0 || everythingResults.length > 0;
+    if (trimmedQuery === lastSearchQueryRef.current && hasResults) {
       return;
     }
     
@@ -1219,7 +1222,19 @@ export function LauncherWindow() {
         } else {
           console.log("[DEBUG] Same query detected, previous search should continue:", trimmedQuery);
           // query 相同，不取消，直接返回（避免重复搜索）
-          return;
+          // 但是，如果结果为空，应该重新搜索（可能是用户全选后再次输入相同内容）
+          const hasResults = filteredApps.length > 0 || filteredFiles.length > 0 || filteredMemos.length > 0 || 
+                             filteredPlugins.length > 0 || systemFolders.length > 0 || everythingResults.length > 0;
+          if (!hasResults) {
+            // 清空currentSearchRef，允许重新搜索everything
+            if (currentSearchRef.current) {
+              currentSearchRef.current.cancelled = true;
+              currentSearchRef.current = null;
+            }
+            // 继续执行搜索，不返回
+          } else {
+            return;
+          }
         }
       }
       
