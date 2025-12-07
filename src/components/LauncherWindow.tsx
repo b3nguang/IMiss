@@ -3838,7 +3838,7 @@ export function LauncherWindow() {
                                   e.stopPropagation();
                                 }}
                                 onContextMenu={(e) => handleContextMenu(e, result)}
-                                className={`flex flex-col items-center gap-1.5 p-2 rounded-lg cursor-pointer transition-all min-w-[70px] ${
+                                className={`flex flex-col items-center justify-center gap-1.5 p-2 rounded-lg cursor-pointer transition-all ${
                                   isSelected 
                                     ? theme.card(true) 
                                     : 'hover:bg-gray-100 bg-gray-50'
@@ -3846,12 +3846,16 @@ export function LauncherWindow() {
                                 style={{
                                   animation: `fadeInUp 0.18s ease-out ${execIndex * 0.02}s both`,
                                   marginLeft: execIndex === 0 && isSelected ? '8px' : '0px', // Add left margin when first item is selected to prevent cut-off when scaled
+                                  width: '86px',
+                                  height: '86px',
+                                  minWidth: '86px',
+                                  minHeight: '86px',
                                 }}
                               >
                                 {isSelected && (
                                   <div className={theme.indicator(true)} style={{ position: 'absolute', top: '4px', left: '4px', width: '3px', height: '3px', borderRadius: '50%' }} />
                                 )}
-                                <div className="flex-shrink-0 flex items-center justify-center" style={{ width: '70px' }}>
+                                <div className="flex-shrink-0 flex items-center justify-center" >
                                   {result.type === "app" ? (() => {
                                     let iconToUse = result.app?.icon;
                                     if (!iconToUse && result.path) {
