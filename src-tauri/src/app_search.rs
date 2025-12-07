@@ -513,10 +513,308 @@ try {
         None
     }
 
+    // Extract icon from .lnk file using Native Windows API
+    // This is the new implementation using Rust + Windows API directly
+    // Falls back to PowerShell method if Native API fails
+    pub fn extract_lnk_icon_base64_native(lnk_path: &Path) -> Option<String> {
+        use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
+        use windows_sys::Win32::UI::Shell::ExtractIconExW;
+        use windows_sys::Win32::UI::WindowsAndMessaging::DestroyIcon;
+
+        // 初始化 COM（单线程模式，用于 COM 接口）
+        unsafe {
+            let hr = CoInitializeEx(std::ptr::null_mut(), COINIT_APARTMENTTHREADED as u32);
+            if hr < 0 {
+                eprintln!("[Native API] COM 初始化失败: {}", hr);
+                return None;
+            }
+        }
+
+        let result = (|| -> Option<String> {
+            // 将路径转换为 UTF-16
+            let lnk_path_wide: Vec<u16> = OsStr::new(lnk_path)
+                .encode_wide()
+                .chain(Some(0))
+                .collect();
+
+            // 方法 1: 尝试解析 .lnk 文件获取 IconLocation
+            // 使用 PowerShell 快速获取 IconLocation 和 TargetPath（这部分很快，只是读取元数据）
+            let (icon_source_path, icon_index) = get_lnk_icon_location(lnk_path)?;
+
+            // 使用 ExtractIconExW 从目标文件提取图标
+            let icon_source_wide: Vec<u16> = OsStr::new(&icon_source_path)
+                .encode_wide()
+                .chain(Some(0))
+                .collect();
+
+            unsafe {
+                let mut large_icons: [isize; 1] = [0; 1];
+                let count = ExtractIconExW(
+                    icon_source_wide.as_ptr(),
+                    icon_index as i32,
+                    large_icons.as_mut_ptr(),
+                    std::ptr::null_mut(),
+                    1,
+                );
+
+                if count > 0 && large_icons[0] != 0 {
+                    if let Some(png_data) = icon_to_png(large_icons[0]) {
+                        // 清理图标句柄
+                        DestroyIcon(large_icons[0]);
+                        return Some(format!("data:image/png;base64,{}", png_data));
+                    }
+                    // 清理图标句柄
+                    DestroyIcon(large_icons[0]);
+                }
+
+                // 如果指定索引失败，尝试索引 0
+                if icon_index != 0 {
+                    let mut large_icons: [isize; 1] = [0; 1];
+                    let count = ExtractIconExW(
+                        icon_source_wide.as_ptr(),
+                        0,
+                        large_icons.as_mut_ptr(),
+                        std::ptr::null_mut(),
+                        1,
+                    );
+
+                    if count > 0 && large_icons[0] != 0 {
+                        if let Some(png_data) = icon_to_png(large_icons[0]) {
+                            DestroyIcon(large_icons[0]);
+                            return Some(format!("data:image/png;base64,{}", png_data));
+                        }
+                        DestroyIcon(large_icons[0]);
+                    }
+                }
+            }
+
+            None
+        })();
+
+        // 清理 COM
+        unsafe {
+            CoUninitialize();
+        }
+
+        result
+    }
+
+    // 辅助函数：将图标句柄转换为 PNG base64 字符串
+    fn icon_to_png(icon_handle: isize) -> Option<String> {
+        use windows_sys::Win32::Graphics::Gdi::{
+            GetDIBits, CreateCompatibleDC, SelectObject, DeleteObject, DeleteDC,
+            BITMAP, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, BI_RGB, CreateDIBSection, GetDC, ReleaseDC,
+        };
+        use windows_sys::Win32::UI::WindowsAndMessaging::{DrawIconEx, DI_NORMAL};
+
+        unsafe {
+            // 获取图标尺寸（通常为 32x32 或系统默认）
+            let icon_size = 32;
+            
+            // 创建兼容的 DC
+            let hdc_screen = GetDC(0);
+            if hdc_screen == 0 {
+                return None;
+            }
+
+            let hdc = CreateCompatibleDC(hdc_screen);
+            if hdc == 0 {
+                ReleaseDC(0, hdc_screen);
+                return None;
+            }
+
+            // 创建位图
+            let mut bitmap_info = BITMAPINFO {
+                bmiHeader: BITMAPINFOHEADER {
+                    biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                    biWidth: icon_size as i32,
+                    biHeight: -(icon_size as i32), // 负值表示从上到下的位图
+                    biPlanes: 1,
+                    biBitCount: 32,
+                    biCompression: BI_RGB,
+                    biSizeImage: 0,
+                    biXPelsPerMeter: 0,
+                    biYPelsPerMeter: 0,
+                    biClrUsed: 0,
+                    biClrImportant: 0,
+                },
+                bmiColors: [windows_sys::Win32::Graphics::Gdi::RGBQUAD {
+                    rgbBlue: 0,
+                    rgbGreen: 0,
+                    rgbRed: 0,
+                    rgbReserved: 0,
+                }; 1],
+            };
+
+            let mut bits_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+            let hbitmap = CreateDIBSection(
+                hdc,
+                &bitmap_info,
+                DIB_RGB_COLORS,
+                &mut bits_ptr,
+                0, // 文件映射对象句柄，NULL 时使用 0
+                0,
+            ) as isize;
+
+            if hbitmap == 0 {
+                DeleteDC(hdc);
+                ReleaseDC(0, hdc_screen);
+                return None;
+            }
+
+            let old_bitmap = SelectObject(hdc, hbitmap);
+
+            // 绘制图标到位图
+            DrawIconEx(
+                hdc,
+                0,
+                0,
+                icon_handle,
+                icon_size,
+                icon_size,
+                0,
+                0, // 可选的图标句柄，NULL 时使用 0
+                DI_NORMAL,
+            );
+
+            // 读取位图数据
+            let mut bitmap = BITMAP {
+                bmType: 0,
+                bmWidth: icon_size,
+                bmHeight: icon_size,
+                bmWidthBytes: icon_size * 4, // 32位 = 4字节每像素
+                bmPlanes: 1,
+                bmBitsPixel: 32,
+                bmBits: std::ptr::null_mut(),
+            };
+
+            let mut dib_bits = vec![0u8; (icon_size * icon_size * 4) as usize];
+            let lines_written = GetDIBits(
+                hdc_screen,
+                hbitmap as isize,
+                0,
+                icon_size as u32,
+                dib_bits.as_mut_ptr() as *mut _,
+                &mut bitmap_info,
+                DIB_RGB_COLORS,
+            );
+
+            SelectObject(hdc, old_bitmap);
+            DeleteObject(hbitmap as isize);
+            DeleteDC(hdc);
+            ReleaseDC(0, hdc_screen);
+
+            if lines_written == 0 {
+                return None;
+            }
+
+            // 将 BGRA 转换为 RGBA
+            for chunk in dib_bits.chunks_exact_mut(4) {
+                chunk.swap(0, 2); // B <-> R
+            }
+
+            // 使用 png crate 编码为 PNG
+            let mut png_data = Vec::new();
+            {
+                let mut encoder = png::Encoder::new(
+                    std::io::Cursor::new(&mut png_data),
+                    icon_size as u32,
+                    icon_size as u32,
+                );
+                encoder.set_color(png::ColorType::Rgba);
+                encoder.set_depth(png::BitDepth::Eight);
+                let mut writer = encoder.write_header().ok()?;
+                writer.write_image_data(&dib_bits).ok()?;
+            }
+
+            // 编码为 base64
+            Some(base64::engine::general_purpose::STANDARD.encode(&png_data))
+        }
+    }
+
+    // 辅助函数：快速获取 .lnk 文件的 IconLocation 和 TargetPath
+    // 使用 PowerShell 快速读取元数据（这部分很快，只是读取，不提取图标）
+    fn get_lnk_icon_location(lnk_path: &Path) -> Option<(PathBuf, i32)> {
+        use std::os::windows::process::CommandExt;
+        
+        let path_str = lnk_path.to_string_lossy().replace('\'', "''");
+        let ps_command = format!(
+            r#"$shell = New-Object -ComObject WScript.Shell; $shortcut = $shell.CreateShortcut('{}'); $iconPath = $shortcut.IconLocation; $targetPath = $shortcut.TargetPath; if ($iconPath -and $iconPath -ne '') {{ $parts = $iconPath -split ','; Write-Output ($parts[0] + '|' + (if ($parts.Length -gt 1) {{ $parts[1] }} else {{ '0' }})) }} else {{ if ($targetPath) {{ Write-Output ($targetPath + '|0') }} else {{ exit 1 }} }}"#,
+            path_str
+        );
+
+        let output = Command::new("powershell")
+            .args(&[
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                &ps_command,
+            ])
+            .creation_flags(0x08000000)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .ok()?;
+
+        if !output.status.success() {
+            return None;
+        }
+
+        let output_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let parts: Vec<&str> = output_str.split('|').collect();
+        if parts.len() != 2 {
+            return None;
+        }
+
+        let icon_path = PathBuf::from(parts[0]);
+        let icon_index = parts[1].parse::<i32>().unwrap_or(0);
+
+        // 验证路径是否存在，如果 IconLocation 不存在，尝试 TargetPath
+        if !icon_path.exists() {
+            let target_ps = format!(
+                r#"$shell = New-Object -ComObject WScript.Shell; $shortcut = $shell.CreateShortcut('{}'); $shortcut.TargetPath"#,
+                path_str
+            );
+
+            let target_output = Command::new("powershell")
+                .args(&[
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command",
+                    &target_ps,
+                ])
+                .creation_flags(0x08000000)
+                .stdout(std::process::Stdio::piped())
+                .output()
+                .ok()?;
+
+            if target_output.status.success() {
+                let target_path = String::from_utf8_lossy(&target_output.stdout).trim().to_string();
+                if !target_path.is_empty() && Path::new(&target_path).exists() {
+                    return Some((PathBuf::from(target_path), 0));
+                }
+            }
+            return None;
+        }
+
+        Some((icon_path, icon_index))
+    }
+
     // Extract icon from .lnk file target
     // Uses PowerShell with parameter passing to avoid encoding issues
     // Tries IconLocation first, then falls back to TargetPath
+    // This is the fallback method - kept for compatibility
     pub fn extract_lnk_icon_base64(lnk_path: &Path) -> Option<String> {
+        // 首先尝试 Native API 方法
+        if let Some(result) = extract_lnk_icon_base64_native(lnk_path) {
+            return Some(result);
+        }
+
+        // 如果 Native API 失败，回退到 PowerShell 方法
         // Convert path to UTF-16 bytes for PowerShell parameter
         let path_utf16: Vec<u16> = lnk_path.to_string_lossy().encode_utf16().collect();
         let path_base64 = base64::engine::general_purpose::STANDARD.encode(
