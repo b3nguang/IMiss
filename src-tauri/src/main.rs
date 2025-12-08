@@ -593,6 +593,7 @@ fn main() {
             search_applications,
             populate_app_icons,
             launch_application,
+            remove_app_from_index,
             debug_app_icon,
             toggle_launcher,
             hide_launcher,

@@ -71,6 +71,10 @@ export const tauriApi = {
     return invoke("launch_application", { app });
   },
 
+  async removeAppFromIndex(appPath: string): Promise<void> {
+    return invoke("remove_app_from_index", { appPath });
+  },
+
   async debugAppIcon(appName: string): Promise<string> {
     return invoke("debug_app_icon", { appName });
   },

@@ -2,12 +2,19 @@ import React from "react";
 
 export type DialogType = "error" | "info" | "success" | "warning";
 
+export interface DialogAction {
+  label: string;
+  onClick: () => void;
+  variant?: "primary" | "danger" | "secondary";
+}
+
 interface ErrorDialogProps {
   isOpen: boolean;
   type?: DialogType;
   title?: string;
   message: string;
   onClose: () => void;
+  actions?: DialogAction[];
 }
 
 export function ErrorDialog({
@@ -16,6 +23,7 @@ export function ErrorDialog({
   title,
   message,
   onClose,
+  actions,
 }: ErrorDialogProps) {
   if (!isOpen) return null;
 
@@ -143,12 +151,39 @@ export function ErrorDialog({
           </div>
         </div>
         <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-end gap-3 bg-gray-50 flex-shrink-0">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700 shadow-sm transition-colors"
-          >
-            确定
-          </button>
+          {actions && actions.length > 0 ? (
+            <>
+              {actions.map((action, index) => {
+                const getButtonStyle = () => {
+                  switch (action.variant) {
+                    case "danger":
+                      return "px-4 py-2 text-sm rounded-md bg-red-600 text-white hover:bg-red-700 shadow-sm transition-colors";
+                    case "secondary":
+                      return "px-4 py-2 text-sm rounded-md border border-gray-300 text-gray-700 hover:bg-gray-100 transition-colors";
+                    case "primary":
+                    default:
+                      return "px-4 py-2 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700 shadow-sm transition-colors";
+                  }
+                };
+                return (
+                  <button
+                    key={index}
+                    onClick={action.onClick}
+                    className={getButtonStyle()}
+                  >
+                    {action.label}
+                  </button>
+                );
+              })}
+            </>
+          ) : (
+            <button
+              onClick={onClose}
+              className="px-4 py-2 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700 shadow-sm transition-colors"
+            >
+              确定
+            </button>
+          )}
         </div>
       </div>
     </div>

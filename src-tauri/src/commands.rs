@@ -791,6 +791,36 @@ pub fn launch_application(app: app_search::AppInfo) -> Result<(), String> {
     app_search::windows::launch_app(&app)
 }
 
+/// 从应用索引中删除指定的应用
+#[tauri::command]
+pub async fn remove_app_from_index(app_path: String, app: tauri::AppHandle) -> Result<(), String> {
+    let app_clone = app.clone();
+    async_runtime::spawn_blocking(move || {
+        let cache = APP_CACHE.clone();
+        let mut cache_guard = cache.lock().map_err(|e| format!("锁定缓存失败: {}", e))?;
+
+        let apps = cache_guard.as_mut().ok_or_else(|| {
+            "Applications not scanned yet. Call scan_applications first.".to_string()
+        })?;
+
+        // 查找并删除匹配的应用
+        let initial_len = apps.len();
+        apps.retain(|app_info| app_info.path != app_path);
+        
+        if apps.len() == initial_len {
+            return Err(format!("未找到路径为 '{}' 的应用", app_path));
+        }
+
+        // 保存更新后的缓存到磁盘
+        let app_data_dir = get_app_data_dir(&app_clone)?;
+        let _ = app_search::windows::save_cache(&app_data_dir, apps);
+
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("remove_app_from_index join error: {}", e))?
+}
+
 /// 调试命令：查找指定名称的应用并尝试提取图标，返回详细信息
 #[tauri::command]
 pub async fn debug_app_icon(app_name: String, app: tauri::AppHandle) -> Result<String, String> {

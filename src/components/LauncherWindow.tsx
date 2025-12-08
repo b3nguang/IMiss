@@ -3424,8 +3424,42 @@ export function LauncherWindow() {
         }
         return;
       } else if (result.type === "app" && result.app) {
-        await tauriApi.launchApplication(result.app);
-        trackEvent("app_launched", { name: result.app.name });
+        try {
+          await tauriApi.launchApplication(result.app);
+          trackEvent("app_launched", { name: result.app.name });
+        } catch (launchError: any) {
+          const errorMsg = launchError?.message || launchError?.toString() || "";
+          // 检测是否是文件不存在的错误，自动删除索引
+          if (
+            errorMsg.includes("快捷方式文件不存在") ||
+            errorMsg.includes("快捷方式目标不存在") ||
+            errorMsg.includes("应用程序未找到")
+          ) {
+            try {
+              // 自动删除无效的索引
+              await tauriApi.removeAppFromIndex(result.app.path);
+              // 从本地状态中移除已删除的应用
+              setApps((prevApps) => prevApps.filter((app) => app.path !== result.app!.path));
+              setFilteredApps((prevFiltered) => prevFiltered.filter((app) => app.path !== result.app!.path));
+              // 刷新搜索结果
+              if (query.trim()) {
+                await searchApplications(query);
+              } else {
+                await loadApplications();
+              }
+              // 显示提示信息
+              setErrorMessage(`${errorMsg}\n\n已自动删除该无效索引。`);
+            } catch (deleteError: any) {
+              console.error("Failed to remove app from index:", deleteError);
+              // 如果删除失败，仍然显示原始错误
+              setErrorMessage(errorMsg);
+            }
+          } else {
+            // 其他错误，正常显示
+            setErrorMessage(errorMsg);
+          }
+          return; // 不继续执行后续的 hideLauncherAndResetState
+        }
       } else if (result.type === "file" && result.file) {
         await tauriApi.launchFile(result.file.path);
       } else if (result.type === "everything" && result.everything) {
@@ -3484,9 +3518,11 @@ export function LauncherWindow() {
       await hideLauncherAndResetState();
     } catch (error: any) {
       console.error("Failed to launch:", error);
-      // 显示友好的错误提示
-      const errorMsg = error?.message || error?.toString() || "未知错误";
-      setErrorMessage(errorMsg);
+      // 显示友好的错误提示（如果还没有设置错误消息）
+      if (!errorMessage) {
+        const errorMsg = error?.message || error?.toString() || "未知错误";
+        setErrorMessage(errorMsg);
+      }
     }
   };
 
@@ -4875,7 +4911,9 @@ export function LauncherWindow() {
         type="error"
         title="启动失败"
         message={errorMessage || ""}
-        onClose={() => setErrorMessage(null)}
+        onClose={() => {
+          setErrorMessage(null);
+        }}
       />
     </div>
   );
