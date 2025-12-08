@@ -271,6 +271,16 @@ pub mod windows {
         Vec::new()
     }
 
+    /// 扫描特定路径并返回找到的应用
+    /// 用于在搜索时实时发现新应用
+    pub fn scan_specific_path(path: &Path) -> Result<Vec<AppInfo>, String> {
+        let mut apps = Vec::new();
+        if path.exists() {
+            scan_directory(path, &mut apps, 0)?;
+        }
+        Ok(apps)
+    }
+
     #[derive(Deserialize)]
     struct StartAppEntry {
         #[serde(rename = "Name")]
@@ -1564,17 +1574,11 @@ public class IconExtractor {
         let mut perfect_matches = 0;
         const MAX_PERFECT_MATCHES: usize = 3; // Early exit if we find 3 perfect matches (reduced from 5 for faster response)
         
-        // For single character queries, limit the search to avoid slow performance
-        // Single characters match too many apps, so we limit the search scope
-        // But we need to check enough apps to find matches like "qq" when searching "q"
-        let MAX_RESULTS_TO_CHECK: usize = if query_lower.len() == 1 {
-            200 // For single character queries, check first 200 apps to ensure we find matches
-        } else {
-            300 // For longer queries, check up to 300 apps
-        };
+        // Check all apps to ensure we find matches regardless of their position in the list
+        // Early exit optimization is still in place for perfect matches to maintain performance
 
         // Use indices instead of cloning to avoid expensive clones
-        for (idx, app) in apps.iter().enumerate().take(MAX_RESULTS_TO_CHECK) {
+        for (idx, app) in apps.iter().enumerate() {
             let mut score = 0;
 
             // Direct text match (highest priority) - use case-insensitive comparison

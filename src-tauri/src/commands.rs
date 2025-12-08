@@ -625,14 +625,24 @@ pub async fn search_applications(
 ) -> Result<Vec<app_search::AppInfo>, String> {
     let cache = APP_CACHE.clone();
     let app_handle_clone = app.clone();
+    let query_clone = query.clone();
     
     // 在后台线程执行搜索，避免阻塞 UI
     // 需要提前克隆 cache，因为闭包会移动它
     let cache_for_search = cache.clone();
+    let app_handle_for_scan = app_handle_clone.clone();
     let results = async_runtime::spawn_blocking(move || {
-        // Get reference to apps list while holding lock, then search
-        // Don't clone the entire list - just search directly
-        let cache_guard = cache_for_search.lock().map_err(|e| e.to_string())?;
+        let mut cache_guard = cache_for_search.lock().map_err(|e| e.to_string())?;
+
+        // 如果缓存为空，尝试加载磁盘缓存
+        if cache_guard.is_none() {
+            let app_data_dir = get_app_data_dir(&app_handle_for_scan)?;
+            if let Ok(disk_cache) = app_search::windows::load_cache(&app_data_dir) {
+                if !disk_cache.is_empty() {
+                    *cache_guard = Some(disk_cache);
+                }
+            }
+        }
 
         let apps = cache_guard
             .as_ref()
@@ -640,7 +650,71 @@ pub async fn search_applications(
 
         // Perform search while holding the lock (search is fast, lock is held briefly)
         // The search function only reads from the apps list, so this is safe
-        let results = app_search::windows::search_apps(&query, apps);
+        let mut results = app_search::windows::search_apps(&query_clone, apps);
+        
+        // 如果搜索结果为空，检查特定路径是否存在匹配的应用
+        if results.is_empty() && !query_clone.trim().is_empty() {
+            let query_lower = query_clone.to_lowercase();
+            
+            // 检查常见的应用安装路径
+            let potential_paths: Vec<std::path::PathBuf> = vec![
+                // Cursor 路径
+                std::env::var("PROGRAMDATA")
+                    .ok()
+                    .map(|p| std::path::PathBuf::from(p).join("Microsoft/Windows/Start Menu/Programs/Cursor")),
+                // 其他可能的路径（如果 Cursor 文件夹不存在，扫描整个 Programs 目录）
+                std::env::var("PROGRAMDATA")
+                    .ok()
+                    .map(|p| std::path::PathBuf::from(p).join("Microsoft/Windows/Start Menu/Programs")),
+                std::env::var("LOCALAPPDATA")
+                    .ok()
+                    .map(|p| std::path::PathBuf::from(p).join("Microsoft/Windows/Start Menu/Programs")),
+            ]
+            .into_iter()
+            .flatten()
+            .collect();
+            
+            for dir_path in potential_paths {
+                if dir_path.exists() {
+                    // 扫描这个目录
+                    if let Ok(mut dir_apps) = app_search::windows::scan_specific_path(&dir_path) {
+                        // 在扫描到的应用中查找匹配的
+                        for app in &dir_apps {
+                            let name_lower = app.name.to_lowercase();
+                            let path_lower = app.path.to_lowercase();
+                            if name_lower.contains(&query_lower) || path_lower.contains(&query_lower) {
+                                // 检查是否已经在结果中
+                                if !results.iter().any(|r| r.path == app.path) {
+                                    results.push(app.clone());
+                                }
+                            }
+                        }
+                        
+                        // 如果找到了新应用，更新缓存
+                        if !results.is_empty() {
+                            let mut all_apps = apps.to_vec();
+                            // 只添加新找到的应用到缓存（避免重复）
+                            for new_app in &results {
+                                if !all_apps.iter().any(|a| a.path == new_app.path) {
+                                    all_apps.push(new_app.clone());
+                                }
+                            }
+                            *cache_guard = Some(all_apps);
+                            
+                            // 保存到磁盘缓存
+                            if let Ok(app_data_dir) = get_app_data_dir(&app_handle_for_scan) {
+                                if let Some(ref cached_apps) = *cache_guard {
+                                    let _ = app_search::windows::save_cache(&app_data_dir, cached_apps);
+                                }
+                            }
+                            
+                            // 只检查第一个找到匹配的路径，避免扫描太多
+                            break;
+                        }
+                    }
+                }
+            }
+        }
         
         // Lock is released here when cache_guard goes out of scope
         Ok::<Vec<app_search::AppInfo>, String>(results)
