@@ -3478,8 +3478,11 @@ export function LauncherWindow() {
       }
       // Hide launcher window after launch
       await hideLauncherAndResetState();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to launch:", error);
+      // 显示友好的错误提示
+      const errorMessage = error?.message || error?.toString() || "未知错误";
+      alert(`启动失败: ${errorMessage}`);
     }
   };
 

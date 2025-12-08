@@ -1730,9 +1730,40 @@ public class IconExtractor {
         }
         
         let path = Path::new(path_str);
-        let is_lnk = path.extension().and_then(|s| s.to_str()) == Some("lnk");
-        if !is_lnk && !path.exists() {
-            return Err(format!("Application not found: {}", app.path));
+        // 检查是否为快捷方式文件（不区分大小写）
+        let is_lnk = path.extension()
+            .and_then(|s| s.to_str())
+            .map(|ext| ext.to_lowercase() == "lnk")
+            .unwrap_or(false);
+        
+        // 对于快捷方式，验证目标是否存在
+        let mut parse_error: Option<String> = None;
+        if is_lnk {
+            // 检查快捷方式文件是否存在
+            if !path.exists() {
+                return Err(format!("快捷方式文件不存在: {}", app.path));
+            }
+            
+            // 解析快捷方式，检查目标是否存在
+            match parse_lnk_file(path) {
+                Ok(target_info) => {
+                    let target_path = Path::new(&target_info.path);
+                    if !target_path.exists() {
+                        return Err(format!(
+                            "快捷方式目标不存在: 快捷方式 '{}' 指向的目标 '{}' 已移动或删除。请更新或重新创建该快捷方式。",
+                            app.path, target_info.path
+                        ));
+                    }
+                    eprintln!("[DEBUG] Launching shortcut: {} -> {}", app.path, target_info.path);
+                }
+                Err(e) => {
+                    parse_error = Some(e.clone());
+                    eprintln!("[WARN] Failed to parse shortcut {}: {}. Attempting direct launch.", app.path, e);
+                    // 继续尝试直接启动，让 ShellExecuteW 处理
+                }
+            }
+        } else if !path.exists() {
+            return Err(format!("应用程序未找到: {}", app.path));
         }
 
         // Convert path to wide string (UTF-16) for Windows API
@@ -1755,7 +1786,59 @@ public class IconExtractor {
         
         // ShellExecuteW returns a value > 32 on success
         if result as i32 <= 32 {
-            return Err(format!("Failed to launch application: {} (error code: {})", app.path, result as i32));
+            let error_code = result as i32;
+            
+            // 获取详细的错误信息
+            let error_name = match error_code {
+                0 => "内存不足",
+                2 => "文件未找到",
+                3 => "路径未找到",
+                5 => "访问被拒绝",
+                8 => "内存不足",
+                11 => "格式错误",
+                26 => "共享冲突",
+                27 => "关联不完整",
+                28 => "DDE 失败",
+                29 => "DDE 超时",
+                30 => "DDE 忙碌",
+                31 => "无关联",
+                32 => "DLL 未找到",
+                _ => "未知错误",
+            };
+            
+            // 对于快捷方式，尝试解析并显示目标路径
+            let additional_info = if is_lnk {
+                // 如果之前解析失败，显示解析错误；否则尝试重新解析
+                if let Some(parse_err) = parse_error {
+                    format!(" (无法解析快捷方式: {})", parse_err)
+                } else {
+                    match parse_lnk_file(path) {
+                        Ok(target_info) => {
+                            format!(" (目标路径: {})", target_info.path)
+                        }
+                        Err(e) => {
+                            format!(" (无法解析快捷方式: {})", e)
+                        }
+                    }
+                }
+            } else {
+                String::new()
+            };
+            
+            // 对于错误代码 5（访问被拒绝），如果是快捷方式，提供更具体的提示
+            let error_msg = if error_code == 5 && is_lnk {
+                format!(
+                    "启动应用程序失败: {} - {} (错误代码: {})\n\n这通常意味着快捷方式指向的目标文件不存在或已移动。{}\n\n建议：请检查快捷方式属性，确认目标路径是否正确，或重新创建该快捷方式。",
+                    app.path, error_name, error_code, additional_info
+                )
+            } else {
+                format!(
+                    "启动应用程序失败: {} - {} (错误代码: {}){}",
+                    app.path, error_name, error_code, additional_info
+                )
+            };
+            
+            return Err(error_msg);
         }
 
         Ok(())
