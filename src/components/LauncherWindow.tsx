@@ -14,6 +14,7 @@ import { AppCenterContent } from "./AppCenterContent";
 import { MemoModal } from "./MemoModal";
 import { ContextMenu } from "./ContextMenu";
 import { ResultIcon } from "./ResultIcon";
+import { ErrorDialog } from "./ErrorDialog";
 import {
   extractUrls,
   isValidJson,
@@ -80,6 +81,8 @@ export function LauncherWindow() {
   const [clipboardUrlToOpen, setClipboardUrlToOpen] = useState<string | null>(null);
   const [detectedUrls, setDetectedUrls] = useState<string[]>([]);
   const [detectedJson, setDetectedJson] = useState<string | null>(null);
+  // 错误提示弹窗
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; result: SearchResult } | null>(null);
   const [selectedMemo, setSelectedMemo] = useState<MemoItem | null>(null);
   const [isMemoModalOpen, setIsMemoModalOpen] = useState(false);
@@ -3482,8 +3485,8 @@ export function LauncherWindow() {
     } catch (error: any) {
       console.error("Failed to launch:", error);
       // 显示友好的错误提示
-      const errorMessage = error?.message || error?.toString() || "未知错误";
-      alert(`启动失败: ${errorMessage}`);
+      const errorMsg = error?.message || error?.toString() || "未知错误";
+      setErrorMessage(errorMsg);
     }
   };
 
@@ -3674,6 +3677,11 @@ export function LauncherWindow() {
     if (e.key === "Escape" || e.keyCode === 27) {
       e.preventDefault();
       e.stopPropagation();
+      // 如果错误弹窗已打开，关闭错误弹窗（ErrorDialog 内部也会处理 ESC，但这里提前处理以避免其他逻辑执行）
+      if (errorMessage) {
+        setErrorMessage(null);
+        return;
+      }
       // 如果应用中心弹窗已打开，关闭应用中心并隐藏窗口（插件像独立软件一样运行）
       if (isPluginListModalOpen) {
         setIsPluginListModalOpen(false);
@@ -4860,6 +4868,15 @@ export function LauncherWindow() {
           </div>
         </div>
       )}
+
+      {/* 错误提示弹窗 */}
+      <ErrorDialog
+        isOpen={!!errorMessage}
+        type="error"
+        title="启动失败"
+        message={errorMessage || ""}
+        onClose={() => setErrorMessage(null)}
+      />
     </div>
   );
 }
