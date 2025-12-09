@@ -3953,12 +3953,26 @@ export function LauncherWindow() {
           return; // 不拦截，让输入框正常处理
         }
         
-        // 如果光标不在边界位置，允许方向键正常移动光标
-        if (e.key === "ArrowLeft" && selectionStart > 0) {
-          return; // 光标不在开头，允许左移
+        // 对于左箭头：只有当横向列表选中的不是第1个元素时，才优先用于横向列表
+        // 如果横向列表选中的是第1个元素（索引0）或没有选中项，允许在输入框内移动光标
+        if (e.key === "ArrowLeft") {
+          // 如果横向列表选中的不是第1个元素，优先用于横向列表导航
+          if (selectedHorizontalIndex !== null && selectedHorizontalIndex !== 0) {
+            // 不返回，继续执行横向列表切换逻辑
+          } else {
+            // 横向列表没有选中项或选中第1个元素，允许在输入框内移动光标
+            // 无论光标在哪里，都让输入框处理（即使光标在开头无法移动，也不应该跳到横向列表）
+            return; // 让输入框处理左箭头
+          }
         }
-        if (e.key === "ArrowRight" && selectionEnd < valueLength) {
-          return; // 光标不在结尾，允许右移
+        
+        // 对于右箭头：如果光标不在最右端，优先用于输入框；否则用于横向列表切换
+        if (e.key === "ArrowRight") {
+          // 如果光标不在最右端，优先用于输入框移动光标
+          if (selectionEnd < valueLength) {
+            return; // 光标不在结尾，允许右移
+          }
+          // 如果光标在最右端，不返回，继续执行横向列表切换逻辑
         }
       }
       
