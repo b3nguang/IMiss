@@ -77,8 +77,6 @@ export function LauncherWindow() {
     model: "llama2",
     base_url: "http://localhost:11434",
   });
-  // 剪切板 URL 弹窗
-  const [clipboardUrlToOpen, setClipboardUrlToOpen] = useState<string | null>(null);
   const [detectedUrls, setDetectedUrls] = useState<string[]>([]);
   const [detectedJson, setDetectedJson] = useState<string | null>(null);
   // 错误提示弹窗
@@ -118,8 +116,6 @@ export function LauncherWindow() {
   const horizontalScrollContainerRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const isWindowDraggingRef = useRef(false);
-  // 记录最近一次已处理的剪切板 URL，避免同一个链接在一次会话中反复弹窗
-  const lastClipboardUrlRef = useRef<string | null>(null);
   // 记录备忘录弹窗是否打开，用于全局 ESC 处理时优先关闭备忘录，而不是隐藏整个窗口
   const isMemoModalOpenRef = useRef(false);
   // 记录应用中心弹窗是否打开，用于全局 ESC 处理时优先关闭应用中心，而不是隐藏整个窗口
@@ -872,23 +868,6 @@ export function LauncherWindow() {
   }, []);
 
 
-  // 确认打开剪切板 URL
-  const handleConfirmOpenClipboardUrl = async () => {
-    if (!clipboardUrlToOpen) return;
-    try {
-      await tauriApi.openUrl(clipboardUrlToOpen);
-      await hideLauncherAndResetState();
-    } catch (error) {
-      console.error("Failed to open clipboard URL:", error);
-      alert("打开链接失败，请稍后重试");
-    } finally {
-      setClipboardUrlToOpen(null);
-    }
-  };
-
-  const handleCancelOpenClipboardUrl = () => {
-    setClipboardUrlToOpen(null);
-  };
 
   // 统一处理窗口拖动，避免拖动过程中触发失焦自动关闭
   const startWindowDragging = async () => {
@@ -902,57 +881,6 @@ export function LauncherWindow() {
     }
   };
 
-  // 检测剪切板中的 URL：仅在窗口获得焦点（显示）时检测一次，不做轮询
-  useEffect(() => {
-    const window = getCurrentWindow();
-
-    const checkClipboardForUrl = async () => {
-      try {
-        const clipboardText = await tauriApi.getClipboardText();
-        if (clipboardText && clipboardText.trim()) {
-          const urls = extractUrls(clipboardText.trim());
-          if (urls.length > 0) {
-            const url = urls[0];
-
-            // 如果这个 URL 与最近一次已处理的 URL 相同，则不再重复弹窗
-            if (lastClipboardUrlRef.current === url) {
-              return;
-            }
-
-            lastClipboardUrlRef.current = url;
-            setClipboardUrlToOpen(url);
-          }
-        }
-      } catch (error) {
-        // 剪切板可能不可访问或无文本内容，这里忽略错误即可
-        console.log("Failed to check clipboard:", error);
-      }
-    };
-
-    // 监听窗口获取焦点事件，每次显示 / 聚焦时检测一次
-    let unlistenPromise: Promise<() => void> | null = null;
-
-    (async () => {
-      try {
-        unlistenPromise = window.listen("tauri://focus", () => {
-          checkClipboardForUrl();
-        });
-      } catch (error) {
-        console.error("Failed to listen window focus event:", error);
-      }
-
-      // 初始化时也检测一次（应用刚启动时窗口已显示的情况）
-      checkClipboardForUrl();
-    })();
-
-    return () => {
-      if (unlistenPromise) {
-        unlistenPromise.then((unlisten) => unlisten());
-      }
-    };
-  }, []);
-
-  // 剪切板 URL 弹窗出现时，也一起参与主窗口高度计算（在下面统一的窗口高度逻辑中处理）
 
 
   const theme = useMemo(() => getThemeConfig(resultStyle), [resultStyle]);
@@ -2446,23 +2374,12 @@ export function LauncherWindow() {
               const containerRect = whiteContainer.getBoundingClientRect();
               let containerHeight = containerRect.height;
 
-              // 如果剪切板 URL 弹窗存在，取主界面和弹窗中更高的那个作为基准高度
-              if (clipboardUrlToOpen) {
-                const clipboardModal = document.querySelector('.clipboard-url-modal') as HTMLElement | null;
-                if (clipboardModal) {
-                  const modalRect = clipboardModal.getBoundingClientRect();
-                  // 适当增加一些边距，避免贴边
-                  const modalHeightWithMargin = modalRect.height + 32;
-                  containerHeight = Math.max(containerHeight, modalHeightWithMargin);
-                }
-              }
               // Use saved window width
               const targetWidth = windowWidth;
               
               // 限制最大高度，避免窗口突然撑高导致不丝滑
-              // 如果检测到剪切板中的链接（弹窗显示），适当提高主界面的最小/最大高度
-              const MAX_HEIGHT = clipboardUrlToOpen ? 720 : 600; // 有弹窗时允许更高
-              const MIN_HEIGHT = clipboardUrlToOpen ? 260 : 200; // 有弹窗时整体更高一点
+              const MAX_HEIGHT = 600;
+              const MIN_HEIGHT = 200;
               const targetHeight = Math.max(MIN_HEIGHT, Math.min(containerHeight, MAX_HEIGHT));
               
               // 直接设置窗口大小（简化版本，不使用动画过渡以避免复杂性）
@@ -2474,7 +2391,7 @@ export function LauncherWindow() {
       
       // Adjust size after results state updates (减少延迟)
       setTimeout(adjustWindowSize, 100);
-    }, [results, isMemoModalOpen, windowWidth, clipboardUrlToOpen]);
+    }, [results, isMemoModalOpen, windowWidth]);
 
   // Update window size when windowWidth changes (but not during resizing)
   useEffect(() => {
@@ -2485,12 +2402,11 @@ export function LauncherWindow() {
     setTimeout(() => {
       adjustWindowSize({
         windowWidth,
-        clipboardUrlToOpen,
         isMemoModalOpen,
         getContainer: getMainContainer,
       });
     }, 50);
-  }, [windowWidth, isMemoModalOpen, isPluginListModalOpen, isResizing, clipboardUrlToOpen]);
+  }, [windowWidth, isMemoModalOpen, isPluginListModalOpen, isResizing]);
 
 
   // Handle window width resizing
@@ -2515,8 +2431,8 @@ export function LauncherWindow() {
         // Update window size directly without triggering state update during drag
         const window = getCurrentWindow();
         const containerHeight = whiteContainer.scrollHeight;
-        const MAX_HEIGHT = clipboardUrlToOpen ? 720 : 600;
-        const MIN_HEIGHT = clipboardUrlToOpen ? 260 : 200;
+        const MAX_HEIGHT = 600;
+        const MIN_HEIGHT = 200;
         const targetHeight = Math.max(MIN_HEIGHT, Math.min(containerHeight, MAX_HEIGHT));
         
         // Update container width directly for immediate visual feedback
@@ -4958,36 +4874,6 @@ export function LauncherWindow() {
         tauriApi={tauriApi}
       />
 
-      {/* Clipboard URL Modal */}
-      {clipboardUrlToOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
-          <div className="clipboard-url-modal bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 max-h-[calc(100vh-32px)] flex flex-col overflow-hidden">
-            <div className="px-5 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
-              <div className="text-sm font-semibold text-gray-800">检测到剪切板中的链接</div>
-            </div>
-            <div className="px-5 py-3">
-              <div className="text-sm text-gray-800 break-all bg-gray-50 rounded-md px-3 py-2 border border-gray-100 max-h-40 overflow-y-auto">
-                {clipboardUrlToOpen}
-              </div>
-            </div>
-            <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between gap-3 bg-gray-50 flex-shrink-0">
-              <div className="text-sm text-gray-600">是否打开此链接？</div>
-              <button
-                onClick={handleCancelOpenClipboardUrl}
-                className="px-4 py-2 text-sm rounded-md border border-gray-300 text-gray-700 hover:bg-gray-100 transition-colors"
-              >
-                取消
-              </button>
-              <button
-                onClick={handleConfirmOpenClipboardUrl}
-                className="px-4 py-2 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700 shadow-sm transition-colors"
-              >
-                打开链接
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* 应用中心弹窗 */}
       {isPluginListModalOpen && (

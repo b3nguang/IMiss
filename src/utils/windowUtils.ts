@@ -18,7 +18,6 @@ export function getMainContainer(): HTMLElement | null {
  */
 export interface WindowSizeAdjustOptions {
   windowWidth: number;
-  clipboardUrlToOpen?: string | null;
   isMemoModalOpen?: boolean;
   maxHeight?: number;
   minHeight?: number;
@@ -31,7 +30,6 @@ export interface WindowSizeAdjustOptions {
 export function adjustWindowSize(options: WindowSizeAdjustOptions): void {
   const {
     windowWidth,
-    clipboardUrlToOpen = null,
     isMemoModalOpen = false,
     maxHeight,
     minHeight,
@@ -47,21 +45,11 @@ export function adjustWindowSize(options: WindowSizeAdjustOptions): void {
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
       const window = getCurrentWindow();
-      let containerHeight = whiteContainer.scrollHeight;
-
-      // 如果剪切板 URL 弹窗存在，取主界面和弹窗中更高的那个作为基准高度
-      if (clipboardUrlToOpen) {
-        const clipboardModal = document.querySelector('.clipboard-url-modal') as HTMLElement | null;
-        if (clipboardModal) {
-          const modalRect = clipboardModal.getBoundingClientRect();
-          const modalHeightWithMargin = modalRect.height + 32;
-          containerHeight = Math.max(containerHeight, modalHeightWithMargin);
-        }
-      }
+      const containerHeight = whiteContainer.scrollHeight;
 
       // 计算目标高度
-      const MAX_HEIGHT = maxHeight ?? (clipboardUrlToOpen ? 720 : 600);
-      const MIN_HEIGHT = minHeight ?? (clipboardUrlToOpen ? 260 : 200);
+      const MAX_HEIGHT = maxHeight ?? 600;
+      const MIN_HEIGHT = minHeight ?? 200;
       const targetHeight = Math.max(MIN_HEIGHT, Math.min(containerHeight, MAX_HEIGHT));
 
       // 设置窗口大小
