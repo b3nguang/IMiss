@@ -3940,6 +3940,28 @@ export function LauncherWindow() {
 
     // 横向结果切换（ArrowLeft/ArrowRight）
     if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      // 检查输入框是否有焦点，以及光标位置
+      const isInputFocused = document.activeElement === inputRef.current;
+      if (isInputFocused && inputRef.current) {
+        const input = inputRef.current;
+        const selectionStart = input.selectionStart ?? 0;
+        const selectionEnd = input.selectionEnd ?? 0;
+        const valueLength = input.value.length;
+        
+        // 如果有文本被选中，允许方向键正常处理（用于取消选中或移动光标）
+        if (selectionStart !== selectionEnd) {
+          return; // 不拦截，让输入框正常处理
+        }
+        
+        // 如果光标不在边界位置，允许方向键正常移动光标
+        if (e.key === "ArrowLeft" && selectionStart > 0) {
+          return; // 光标不在开头，允许左移
+        }
+        if (e.key === "ArrowRight" && selectionEnd < valueLength) {
+          return; // 光标不在结尾，允许右移
+        }
+      }
+      
       // 立即阻止默认行为和事件传播，防止页面滚动
       e.preventDefault();
       e.stopPropagation();
