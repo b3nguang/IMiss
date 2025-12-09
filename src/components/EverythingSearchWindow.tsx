@@ -121,8 +121,17 @@ export function EverythingSearchWindow() {
 
       const savedCustom = localStorage.getItem(CUSTOM_FILTER_PREFERENCE_KEY);
       if (savedCustom) {
-        const parsed = JSON.parse(savedCustom) as CustomFilter[];
-        if (Array.isArray(parsed)) setCustomFilters(parsed);
+        try {
+          const parsed = JSON.parse(savedCustom) as CustomFilter[];
+          if (Array.isArray(parsed)) {
+            setCustomFilters(parsed);
+            console.log("已加载自定义过滤器:", parsed);
+          } else {
+            console.warn("自定义过滤器数据格式无效，已忽略");
+          }
+        } catch (error) {
+          console.error("解析自定义过滤器失败:", error);
+        }
       }
 
       const savedMaxResults = localStorage.getItem(MAX_RESULTS_PREFERENCE_KEY);
@@ -169,9 +178,11 @@ export function EverythingSearchWindow() {
 
   useEffect(() => {
     try {
-      localStorage.setItem(CUSTOM_FILTER_PREFERENCE_KEY, JSON.stringify(customFilters));
-    } catch {
-      // ignore
+      const serialized = JSON.stringify(customFilters);
+      localStorage.setItem(CUSTOM_FILTER_PREFERENCE_KEY, serialized);
+      console.log("自定义过滤器已自动保存:", customFilters);
+    } catch (error) {
+      console.error("自动保存自定义过滤器失败:", error);
     }
   }, [customFilters]);
 
@@ -288,7 +299,8 @@ export function EverythingSearchWindow() {
       activeFilter && activeFilter.extensions.length > 0
         ? activeFilter.extensions
         : undefined;
-    const searchKey = `${searchQuery}::${extFilter?.join(",") ?? "all"}`;
+    // searchKey 需要包含所有影响搜索结果的选项，以便正确检测查询是否变化
+    const searchKey = `${searchQuery}::${extFilter?.join(",") ?? "all"}::wholeWord:${matchWholeWord}::folderOnly:${matchFolderNameOnly}`;
 
     // 取消之前的搜索
     if (currentSearchRef.current) {
@@ -382,13 +394,13 @@ export function EverythingSearchWindow() {
     };
   }, [query, searchEverything]);
 
-  // 切换过滤器时重新触发 IPC 搜索（保持与当前关键词一致）
+  // 切换过滤器或搜索选项时重新触发 IPC 搜索（保持与当前关键词一致）
   useEffect(() => {
     const trimmedQuery = query.trim();
     if (!trimmedQuery) return;
     // 直接触发一次搜索，复用去重/取消逻辑
     searchEverything(trimmedQuery);
-  }, [activeFilter, query, searchEverything]);
+  }, [activeFilter, matchWholeWord, matchFolderNameOnly, query, searchEverything]);
 
   const filteredAndSortedResults = useMemo(() => {
     const extSet =
@@ -492,16 +504,37 @@ export function EverythingSearchWindow() {
     if (!name || extList.length === 0) return;
     const id = `custom-${Date.now()}`;
     const filter: CustomFilter = { id, label: name, extensions: extList };
-    setCustomFilters((prev) => [...prev, filter]);
+    const newFilters = [...customFilters, filter];
+    setCustomFilters(newFilters);
     setActiveFilterId(id);
     setNewFilterName("");
     setNewFilterExts("");
+    
+    // 立即保存到 localStorage，确保持久化
+    try {
+      const serialized = JSON.stringify(newFilters);
+      localStorage.setItem(CUSTOM_FILTER_PREFERENCE_KEY, serialized);
+      console.log("自定义过滤器已保存:", newFilters);
+    } catch (error) {
+      console.error("保存自定义过滤器失败:", error);
+      // 即使保存失败，也继续执行，因为 useEffect 可能会重试
+    }
   };
 
   const handleRemoveCustomFilter = (id: string) => {
-    setCustomFilters((prev) => prev.filter((f) => f.id !== id));
+    const newFilters = customFilters.filter((f) => f.id !== id);
+    setCustomFilters(newFilters);
     if (activeFilterId === id) {
       setActiveFilterId("all");
+    }
+    
+    // 立即保存到 localStorage，确保持久化
+    try {
+      const serialized = JSON.stringify(newFilters);
+      localStorage.setItem(CUSTOM_FILTER_PREFERENCE_KEY, serialized);
+      console.log("自定义过滤器已删除并保存:", newFilters);
+    } catch (error) {
+      console.error("保存自定义过滤器失败:", error);
     }
   };
 

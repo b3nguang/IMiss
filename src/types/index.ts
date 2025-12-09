@@ -67,6 +67,8 @@ export interface EverythingSearchOptions {
   onlyFiles?: boolean;
   onlyFolders?: boolean;
   maxResults?: number;
+  matchWholeWord?: boolean;
+  matchFolderNameOnly?: boolean;
 }
 
 export interface IndexEverythingStatus {

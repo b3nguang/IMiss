@@ -1243,21 +1243,67 @@ pub struct EverythingSearchOptions {
     pub only_folders: Option<bool>,
     #[serde(rename = "maxResults")]
     pub max_results: Option<usize>,
+    #[serde(rename = "matchWholeWord")]
+    pub match_whole_word: Option<bool>,
+    #[serde(rename = "matchFolderNameOnly")]
+    pub match_folder_name_only: Option<bool>,
 }
 
 fn build_everything_query(base: &str, options: &Option<EverythingSearchOptions>) -> (String, usize) {
     let mut parts: Vec<String> = Vec::new();
-    if !base.trim().is_empty() {
-        parts.push(base.trim().to_string());
-    }
+    let mut base_query = base.trim().to_string();
+    let mut use_regex = false;
 
     let mut max_results = 50usize;
 
     if let Some(opts) = options {
-        if opts.only_files.unwrap_or(false) {
-            parts.push("file:".to_string());
-        } else if opts.only_folders.unwrap_or(false) {
+        // 如果启用"仅匹配文件夹名"，需要特殊处理
+        let match_folder_name_only = opts.match_folder_name_only.unwrap_or(false);
+        let match_whole_word = opts.match_whole_word.unwrap_or(false);
+        
+        if match_folder_name_only && !base_query.is_empty() {
+            // 只匹配文件夹名，使用正则表达式
+            // 转义特殊字符
+            let escaped_query = base_query
+                .replace('\\', "\\\\")
+                .replace('.', "\\.")
+                .replace('^', "\\^")
+                .replace('$', "\\$")
+                .replace('|', "\\|")
+                .replace('(', "\\(")
+                .replace(')', "\\)")
+                .replace('[', "\\[")
+                .replace(']', "\\]")
+                .replace('{', "\\{")
+                .replace('}', "\\}")
+                .replace('+', "\\+")
+                .replace('*', "\\*")
+                .replace('?', "\\?");
+            
+            // 构建正则表达式：匹配以该文件夹名结尾的路径
+            // Windows 路径使用反斜杠，Unix 路径使用正斜杠
+            if match_whole_word {
+                // 全字匹配：使用单词边界
+                // 匹配路径末尾的文件夹名（作为完整单词）
+                base_query = format!("regex:.*[\\\\/]\\b{}\\b$|^\\b{}\\b$", escaped_query, escaped_query);
+            } else {
+                // 普通匹配：匹配路径末尾的文件夹名
+                base_query = format!("regex:.*[\\\\/]{}$|^{}$", escaped_query, escaped_query);
+            }
+            use_regex = true;
+            // 强制只搜索文件夹
             parts.push("folder:".to_string());
+        } else {
+            // 正常处理
+            if opts.only_files.unwrap_or(false) {
+                parts.push("file:".to_string());
+            } else if opts.only_folders.unwrap_or(false) {
+                parts.push("folder:".to_string());
+            }
+        }
+        
+        if !base_query.is_empty() {
+            parts.push(base_query);
         }
 
         if let Some(exts) = &opts.extensions {
@@ -1407,11 +1453,16 @@ pub async fn search_everything(
                 });
             };
 
+            let match_whole_word = options.as_ref()
+                .and_then(|opts| opts.match_whole_word)
+                .unwrap_or(false);
+
             let result = everything_search::windows::search_files(
                 &query_clone,
                 max_results_clone,
                 Some(&cancel_flag),
                 Some(on_batch),
+                match_whole_word,
             );
 
             // 无论搜索成功还是失败，都要清理 current_query
