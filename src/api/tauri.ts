@@ -5,6 +5,7 @@ import type {
   FileHistoryItem,
   EverythingSearchResponse,
   EverythingSearchOptions,
+  EverythingResult,
   ShortcutItem,
   MemoItem,
   SystemFolderItem,

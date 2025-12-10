@@ -3043,7 +3043,22 @@ export function LauncherWindow() {
       return;
     }
     
-    // 后端存在“相同查询进行中则报错跳过”的保护，这里每次新搜索前主动取消上一轮，避免误判卡死
+    // 检查是否是重复调用（在取消之前检查，避免不必要的取消操作）
+    // 注意：防抖结束后已经检查过了，但这里需要再次检查，因为可能有异步调用
+    if (currentSearchRef.current) {
+      if (currentSearchRef.current.query === searchQuery) {
+        // 如果 query 相同，说明是重复调用，不应该取消
+        console.log("[DEBUG] Search with same query already in progress, skipping duplicate call:", searchQuery);
+        return;
+      }
+      // 如果 query 不同，说明需要取消旧搜索
+      console.log("[DEBUG] Previous search query differs, will cancel:", {
+        previousQuery: currentSearchRef.current.query,
+        newQuery: searchQuery
+      });
+    }
+
+    // 后端存在"相同查询进行中则报错跳过"的保护，这里每次新搜索前主动取消上一轮，避免误判卡死
     try {
       await tauriApi.cancelEverythingSearch();
     } catch (cancelErr) {
@@ -3052,23 +3067,6 @@ export function LauncherWindow() {
     // 前端同步清理当前搜索引用，允许同一关键字立即重新发起请求
     if (currentSearchRef.current) {
       currentSearchRef.current.cancelled = true;
-      currentSearchRef.current = null;
-    }
-
-    // 检查是否是重复调用
-    // 注意：防抖结束后已经检查过了，但这里需要再次检查，因为可能有异步调用
-    if (currentSearchRef.current) {
-      if (currentSearchRef.current.query === searchQuery) {
-        // 如果 query 相同，说明是重复调用，不应该取消
-        console.log("[DEBUG] Search with same query already in progress, skipping duplicate call:", searchQuery);
-        return;
-      }
-      // 如果 query 不同，说明在防抖结束后已经被取消了
-      // 清空旧引用，确保状态一致性
-      console.log("[DEBUG] Previous search was already cancelled in debounce handler, clearing ref:", {
-        previousQuery: currentSearchRef.current.query,
-        newQuery: searchQuery
-      });
       currentSearchRef.current = null;
     }
     
