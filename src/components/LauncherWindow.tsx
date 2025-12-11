@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { flushSync } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -361,14 +361,14 @@ export function LauncherWindow() {
   }, [resultStyle]);
 
   // 重置备忘录相关状态的辅助函数
-  const resetMemoState = () => {
+  const resetMemoState = useCallback(() => {
     setIsMemoModalOpen(false);
     setIsMemoListMode(true);
     setSelectedMemo(null);
     setMemoEditTitle("");
     setMemoEditContent("");
     setIsEditingMemo(false);
-  };
+  }, []);
 
   // 根据插件ID获取对应的图标
   const getPluginIcon = (pluginId: string, className: string) => {
@@ -425,7 +425,7 @@ export function LauncherWindow() {
   };
 
   // 统一处理窗口关闭和状态清理的公共函数
-  const hideLauncherAndResetState = async (options?: { resetMemo?: boolean; resetAi?: boolean }) => {
+  const hideLauncherAndResetState = useCallback(async (options?: { resetMemo?: boolean; resetAi?: boolean }) => {
     try {
       await tauriApi.hideLauncher();
       setQuery("");
@@ -445,7 +445,7 @@ export function LauncherWindow() {
     } catch (error) {
       console.error("Failed to hide window:", error);
     }
-  };
+  }, [resetMemoState]);
 
   // 插件列表已从 plugins/index.ts 导入
 
@@ -1337,7 +1337,7 @@ export function LauncherWindow() {
     }
   };
 
-  const handleSearchPlugins = (q: string) => {
+  const handleSearchPlugins = useCallback((q: string) => {
     // Don't search if query is empty
     if (!q || q.trim() === "") {
       setFilteredPlugins([]);
@@ -1352,11 +1352,11 @@ export function LauncherWindow() {
     } else {
       setFilteredPlugins([]);
     }
-  };
+  }, [query]);
 
 
   // 处理绝对路径直达：存在则生成一个临时文件结果，减少 Everything/系统目录压力
-  const handleDirectPathLookup = async (rawPath: string) => {
+  const handleDirectPathLookup = useCallback(async (rawPath: string) => {
     try {
       const result = await tauriApi.checkPathExists(rawPath);
       // 只在查询未变化时更新
@@ -1371,7 +1371,7 @@ export function LauncherWindow() {
         setDirectPathResult(null);
       }
     }
-  };
+  }, [query]);
 
 
   // Combine apps, files, Everything results, and URLs into results when they change
@@ -3323,46 +3323,7 @@ export function LauncherWindow() {
   };
 
 
-  const handleStartEverything = async () => {
-    try {
-      await tauriApi.startEverything();
-      // 等待一下让 Everything 启动并初始化
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      // 重新检查状态
-      await handleCheckAgain();
-    } catch (error) {
-      console.error("启动 Everything 失败:", error);
-      alert(`启动失败: ${error}`);
-    }
-  };
-
-  const handleDownloadEverything = async () => {
-    try {
-      setIsDownloadingEverything(true);
-      setEverythingDownloadProgress(0);
-
-      const installerPath = await tauriApi.downloadEverything();
-      setEverythingDownloadProgress(100);
-
-      // 下载完成后，临时取消窗口置顶，确保安装程序显示在启动器之上
-      const window = getCurrentWindow();
-      await window.setAlwaysOnTop(false);
-
-      // 自动打开安装程序
-      await tauriApi.launchFile(installerPath);
-
-      // 下载逻辑结束，重置下载状态（不再弹出遮挡安装向导的提示框）
-      setIsDownloadingEverything(false);
-      setEverythingDownloadProgress(0);
-    } catch (error) {
-      console.error("Failed to download Everything:", error);
-      setIsDownloadingEverything(false);
-      setEverythingDownloadProgress(0);
-      alert(`下载失败: ${error}`);
-    }
-  };
-
-  const handleCheckAgain = async () => {
+  const handleCheckAgain = useCallback(async () => {
     try {
       // Force a fresh check with detailed status
       const status = await tauriApi.getEverythingStatus();
@@ -3401,7 +3362,46 @@ export function LauncherWindow() {
       console.error("Failed to check Everything:", error);
       alert(`检测失败: ${error}`);
     }
-  };
+  }, []);
+
+  const handleStartEverything = useCallback(async () => {
+    try {
+      await tauriApi.startEverything();
+      // 等待一下让 Everything 启动并初始化
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      // 重新检查状态
+      await handleCheckAgain();
+    } catch (error) {
+      console.error("启动 Everything 失败:", error);
+      alert(`启动失败: ${error}`);
+    }
+  }, [handleCheckAgain]);
+
+  const handleDownloadEverything = useCallback(async () => {
+    try {
+      setIsDownloadingEverything(true);
+      setEverythingDownloadProgress(0);
+
+      const installerPath = await tauriApi.downloadEverything();
+      setEverythingDownloadProgress(100);
+
+      // 下载完成后，临时取消窗口置顶，确保安装程序显示在启动器之上
+      const window = getCurrentWindow();
+      await window.setAlwaysOnTop(false);
+
+      // 自动打开安装程序
+      await tauriApi.launchFile(installerPath);
+
+      // 下载逻辑结束，重置下载状态（不再弹出遮挡安装向导的提示框）
+      setIsDownloadingEverything(false);
+      setEverythingDownloadProgress(0);
+    } catch (error) {
+      console.error("Failed to download Everything:", error);
+      setIsDownloadingEverything(false);
+      setEverythingDownloadProgress(0);
+      alert(`下载失败: ${error}`);
+    }
+  }, []);
 
   const handleLaunch = async (result: SearchResult) => {
     try {
@@ -3623,7 +3623,7 @@ export function LauncherWindow() {
     }
   };
 
-  const handleContextMenu = (e: React.MouseEvent, result: SearchResult) => {
+  const handleContextMenu = useCallback((e: React.MouseEvent, result: SearchResult) => {
     e.preventDefault();
     e.stopPropagation();
     // 计算菜单位置，避免遮挡文字
@@ -3645,9 +3645,9 @@ export function LauncherWindow() {
     }
     
     setContextMenu({ x, y, result });
-  };
+  }, []);
 
-  const handleRevealInFolder = async () => {
+  const handleRevealInFolder = useCallback(async () => {
     if (!contextMenu) return;
     
     try {
@@ -3670,10 +3670,51 @@ export function LauncherWindow() {
       alert(`打开文件夹失败: ${error}`);
       setContextMenu(null);
     }
-  };
+  }, [contextMenu]);
 
+  const processPastedPath = useCallback(async (trimmedPath: string) => {
+    console.log("Processing path:", trimmedPath);
+    
+    // Always set the query first so user sees something
+    setQuery(trimmedPath);
+    
+    try {
+      // Check if path exists (file or folder)
+      console.log("Checking if path exists...");
+      const pathItem = await tauriApi.checkPathExists(trimmedPath);
+      console.log("Path check result:", pathItem);
+      
+      if (pathItem) {
+        // Path exists, add to history first
+        try {
+          console.log("Adding to history...");
+          await tauriApi.addFileToHistory(trimmedPath);
+          // Reload file history to get updated item with use_count
+          const searchResults = await tauriApi.searchFileHistory(trimmedPath);
+          console.log("Search results:", searchResults);
+          if (searchResults.length > 0) {
+            setFilteredFiles(searchResults);
+          } else {
+            // If not found in search, use the item we got from check
+            console.log("Using pathItem from check");
+            setFilteredFiles([pathItem]);
+          }
+        } catch (error) {
+          // Ignore errors when adding to history, still show the result
+          console.error("Failed to add file to history:", error);
+          setFilteredFiles([pathItem]);
+        }
+      } else {
+        // Path doesn't exist, search will still run via query change
+        console.log("Path doesn't exist, but query is set for search");
+      }
+    } catch (error) {
+      console.error("Failed to check path:", error);
+      // Query is already set, search will still run
+    }
+  }, []);
 
-  const handlePaste = async (e: React.ClipboardEvent) => {
+  const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
     const clipboardTypes = Array.from(e.clipboardData.types);
     
     // 首先检查剪贴板是否包含图片
@@ -3892,51 +3933,9 @@ export function LauncherWindow() {
     } else {
       console.log("Pasted text doesn't look like a path, allowing default paste behavior");
     }
-  };
+  }, [processPastedPath]);
 
-  const processPastedPath = async (trimmedPath: string) => {
-    console.log("Processing path:", trimmedPath);
-    
-    // Always set the query first so user sees something
-    setQuery(trimmedPath);
-    
-    try {
-      // Check if path exists (file or folder)
-      console.log("Checking if path exists...");
-      const pathItem = await tauriApi.checkPathExists(trimmedPath);
-      console.log("Path check result:", pathItem);
-      
-      if (pathItem) {
-        // Path exists, add to history first
-        try {
-          console.log("Adding to history...");
-          await tauriApi.addFileToHistory(trimmedPath);
-          // Reload file history to get updated item with use_count
-          const searchResults = await tauriApi.searchFileHistory(trimmedPath);
-          console.log("Search results:", searchResults);
-          if (searchResults.length > 0) {
-            setFilteredFiles(searchResults);
-          } else {
-            // If not found in search, use the item we got from check
-            console.log("Using pathItem from check");
-            setFilteredFiles([pathItem]);
-          }
-        } catch (error) {
-          // Ignore errors when adding to history, still show the result
-          console.error("Failed to add file to history:", error);
-          setFilteredFiles([pathItem]);
-        }
-      } else {
-        // Path doesn't exist, search will still run via query change
-        console.log("Path doesn't exist, but query is set for search");
-      }
-    } catch (error) {
-      console.error("Failed to check path:", error);
-      // Query is already set, search will still run
-    }
-  };
-
-  const handleSaveImageToDownloads = async (imagePath: string) => {
+  const handleSaveImageToDownloads = useCallback(async (imagePath: string) => {
     try {
       const savedPath = await tauriApi.copyFileToDownloads(imagePath);
       setSuccessMessage(`图片已保存到下载目录: ${savedPath}`);
@@ -3956,7 +3955,7 @@ export function LauncherWindow() {
     } catch (error) {
       setErrorMessage("保存图片失败: " + (error as Error).message);
     }
-  };
+  }, []);
 
 
   const handleKeyDown = async (e: React.KeyboardEvent) => {
