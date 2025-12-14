@@ -67,6 +67,10 @@ export const tauriApi = {
     return invoke("search_applications", { query });
   },
 
+  async searchSystemFolders(query: string): Promise<Array<{ name: string; path: string; display_name: string; is_folder: boolean }>> {
+    return invoke("search_system_folders", { query });
+  },
+
   async launchApplication(app: AppInfo): Promise<void> {
     return invoke("launch_application", { app });
   },

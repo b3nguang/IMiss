@@ -20,6 +20,7 @@ mod recording;
 mod replay;
 mod settings;
 mod shortcuts;
+mod system_folders_search;
 mod window_config;
 
 use crate::commands::get_app_data_dir;
@@ -606,6 +607,7 @@ fn main() {
             scan_applications,
             rescan_applications,
             search_applications,
+            search_system_folders,
             populate_app_icons,
             launch_application,
             remove_app_from_index,

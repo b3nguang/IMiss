@@ -1721,16 +1721,14 @@ public class IconExtractor {
             if name_lower == query_lower {
                 score += 1000;
                 perfect_matches += 1;
-                // For short queries (like "qq"), exit immediately on first perfect match
-                // This ensures fast response for specific app searches
-                if query_lower.len() <= 3 && perfect_matches >= 1 {
-                    results.push((idx, score));
-                    break;
-                }
-                // Early exit if we have enough perfect matches (reduced threshold for faster response)
+                results.push((idx, score));
+                // For short queries (like "qq"), continue searching but we'll prioritize perfect matches
+                // Don't break early - we want to find all perfect matches first
+                // Early exit only if we have enough perfect matches (reduced threshold for faster response)
                 if perfect_matches >= MAX_PERFECT_MATCHES {
-                    // If we have perfect matches, prioritize them and return early
-                    results.push((idx, score));
+                    // If we have enough perfect matches, we can stop searching for more
+                    // But we've already added this one, so continue to check if there are more perfect matches
+                    // Actually, let's break here to avoid searching too many apps
                     break;
                 }
             } else if name_lower.starts_with(&query_lower) {
@@ -1772,7 +1770,17 @@ public class IconExtractor {
                 // If no cached pinyin, skip pinyin matching (app name likely doesn't contain Chinese)
             }
 
-            // Path match gets lower score (only check if no name match to save time)
+            // Description match (check if query matches description, e.g., "系统设置" matches "Windows 系统设置")
+            if score == 0 {
+                if let Some(ref description) = app.description {
+                    let desc_lower = description.to_lowercase();
+                    if desc_lower.contains(&query_lower) {
+                        score += 150; // Description match gets higher score than path match
+                    }
+                }
+            }
+            
+            // Path match gets lower score (only check if no name or description match to save time)
             if score == 0 {
                 let path_lower_start = std::time::Instant::now();
                 let path_lower = app.path.to_lowercase();

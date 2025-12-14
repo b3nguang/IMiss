@@ -11,6 +11,7 @@ use crate::recording::{RecordingMeta, RecordingState};
 use crate::replay::ReplayState;
 use crate::settings;
 use crate::shortcuts;
+use crate::system_folders_search;
 use crate::window_config;
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{DateTime, Utc};
@@ -825,6 +826,12 @@ pub async fn search_applications(
         });
     }
 
+    Ok(results)
+}
+
+#[tauri::command]
+pub fn search_system_folders(query: String) -> Result<Vec<system_folders_search::windows::SystemFolderItem>, String> {
+    let results = system_folders_search::windows::search_system_folders(&query);
     Ok(results)
 }
 
@@ -1690,7 +1697,7 @@ pub async fn start_everything_search_session(
         let ext_filter = opts.and_then(|o| o.extensions.as_ref());
         let max_results = opts
             .and_then(|o| o.max_results)
-            .unwrap_or(5000)
+            .unwrap_or(50)
             .min(2000000); // 硬上限
         let match_folder_name_only = opts
             .and_then(|o| o.match_folder_name_only)
