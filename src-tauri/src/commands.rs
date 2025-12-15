@@ -3654,9 +3654,26 @@ pub fn reveal_in_folder(path: String) -> Result<(), String> {
             normalized_path = normalized_path.trim_end_matches('\\').to_string();
             
             // Validate path doesn't contain invalid characters for Windows
-            // Windows invalid characters: < > : " | ? * and control characters
-            let invalid_chars = ['<', '>', ':', '"', '|', '?', '*'];
+            // Windows invalid characters: < > " | ? * and control characters
+            // Note: ':' is only valid after drive letter (e.g., C:), so we check for it separately
+            let invalid_chars = ['<', '>', '"', '|', '?', '*'];
             if normalized_path.chars().any(|c| invalid_chars.contains(&c)) {
+                return Err(format!("Path contains invalid characters: {}", normalized_path));
+            }
+            
+            // Check for invalid colon usage (colon is only valid after drive letter)
+            // Windows allows colon only at position 1 after a drive letter (e.g., C:)
+            // Remove valid drive letter prefix (e.g., "C:") and check if any colons remain
+            let path_after_drive = if normalized_path.len() >= 2 
+                && normalized_path.chars().nth(0).map_or(false, |c| c.is_ascii_alphabetic())
+                && normalized_path.chars().nth(1) == Some(':') {
+                &normalized_path[2..]
+            } else {
+                &normalized_path[..]
+            };
+            
+            // If there are any colons remaining after removing drive letter, it's invalid
+            if path_after_drive.contains(':') {
                 return Err(format!("Path contains invalid characters: {}", normalized_path));
             }
             
