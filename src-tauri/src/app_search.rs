@@ -617,21 +617,13 @@ pub mod windows {
     // 使用 Windows API 直接提取图标，避免在约束语言模式下使用 COM 对象
     pub fn extract_uwp_app_icon_base64(app_path: &str) -> Option<String> {
         // #region agent log
-        use std::fs::OpenOptions;
-        use std::io::Write;
-        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(r"d:\project\re-fast\.cursor\debug.log") {
-            let _ = writeln!(file, r#"{{"id":"log_uwp_icon_1","timestamp":{},"location":"app_search.rs:618","message":"extract_uwp_app_icon_base64 entry","data":{{"app_path":"{}"}},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}}"#, 
-                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(), app_path);
-        }
+        eprintln!("[UWP图标] 开始提取: app_path={}", app_path);
         // #endregion
         
         // Parse shell:AppsFolder\PackageFamilyName!ApplicationId format
         if !app_path.starts_with("shell:AppsFolder\\") {
             // #region agent log
-            if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(r"d:\project\re-fast\.cursor\debug.log") {
-                let _ = writeln!(file, r#"{{"id":"log_uwp_icon_2","timestamp":{},"location":"app_search.rs:622","message":"path does not start with shell:AppsFolder","data":{{"app_path":"{}"}},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}}"#, 
-                    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(), app_path);
-            }
+            eprintln!("[UWP图标] 路径格式错误: app_path={}", app_path);
             // #endregion
             return None;
         }
@@ -639,26 +631,138 @@ pub mod windows {
         // 使用纯 Rust 实现，调用 Native Windows API
         if let Some(icon) = extract_uwp_app_icon_base64_native(app_path) {
             // #region agent log
-            if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(r"d:\project\re-fast\.cursor\debug.log") {
-                let _ = writeln!(file, r#"{{"id":"log_uwp_icon_3","timestamp":{},"location":"app_search.rs:641","message":"native API succeeded","data":{{"app_path":"{}","icon_len":{}}},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}}"#, 
-                    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(), app_path, icon.len());
-            }
+            eprintln!("[UWP图标] Native API 成功: app_path={}, icon_len={}", app_path, icon.len());
             // #endregion
             return Some(icon);
         }
         
         // #region agent log
-        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(r"d:\project\re-fast\.cursor\debug.log") {
-            let _ = writeln!(file, r#"{{"id":"log_uwp_icon_12","timestamp":{},"location":"app_search.rs:650","message":"extract_uwp_app_icon_base64 returning None","data":{{"app_path":"{}"}},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}}"#, 
-                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(), app_path);
-        }
+        eprintln!("[UWP图标] 提取失败，返回 None: app_path={}", app_path);
         // #endregion
         None
     }
     
-    // 使用 Native Windows API 提取 UWP 应用图标
-    // 注意：SHGetFileInfoW 对于 UWP 应用可能返回默认图标，但这是目前最可行的方法
+    // 使用 IShellItemImageFactory 提取 UWP 应用图标（推荐方法）
+    // 如果失败，回退到 SHGetFileInfoW 方法
     fn extract_uwp_app_icon_base64_native(app_path: &str) -> Option<String> {
+        // 首先尝试使用 IShellItemImageFactory（更准确）
+        if let Some(result) = extract_uwp_app_icon_via_image_factory(app_path) {
+            return Some(result);
+        }
+        
+        // #region agent log
+        eprintln!("[UWP图标Native] IShellItemImageFactory 失败，回退到 SHGetFileInfoW: app_path={}", app_path);
+        // #endregion
+        
+        // 回退到 SHGetFileInfoW 方法
+        extract_uwp_app_icon_via_shgetfileinfo(app_path)
+    }
+    
+    // 使用 IShellItemImageFactory 提取图标（新方法）
+    fn extract_uwp_app_icon_via_image_factory(app_path: &str) -> Option<String> {
+        // 使用别名避免与 windows 模块冲突
+        use ::windows::Win32::UI::Shell::{IShellItemImageFactory, SHCreateItemFromParsingName, SIIGBF};
+        use ::windows::Win32::Graphics::Gdi::{DeleteObject, HGDIOBJ};
+        use ::windows::core::PCWSTR;
+        
+        unsafe {
+            // 初始化 COM（如果尚未初始化）
+            use windows_sys::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
+            let _ = CoInitializeEx(std::ptr::null_mut(), COINIT_APARTMENTTHREADED as u32);
+            
+            let result = (|| -> Option<String> {
+                // 将路径转换为 PCWSTR
+                use std::ffi::OsStr;
+                use std::os::windows::ffi::OsStrExt;
+                let path_wide: Vec<u16> = OsStr::new(app_path)
+                    .encode_wide()
+                    .chain(Some(0))
+                    .collect();
+                let path_pcwstr = PCWSTR::from_raw(path_wide.as_ptr());
+                
+                // #region agent log
+                eprintln!("[UWP图标ImageFactory] SHCreateItemFromParsingName 调用: app_path={}", app_path);
+                // #endregion
+                
+                // 使用 SHCreateItemFromParsingName 创建 IShellItem
+                use ::windows::Win32::UI::Shell::IShellItem;
+                let shell_item: IShellItem = match SHCreateItemFromParsingName(path_pcwstr, None) {
+                    Ok(item) => item,
+                    Err(e) => {
+                        eprintln!("[UWP图标ImageFactory] SHCreateItemFromParsingName 失败: app_path={}, error={:?}", app_path, e);
+                        return None;
+                    }
+                };
+                
+                // QueryInterface 获取 IShellItemImageFactory
+                use ::windows::core::Interface;
+                let image_factory: IShellItemImageFactory = match shell_item.cast() {
+                    Ok(factory) => factory,
+                    Err(e) => {
+                        eprintln!("[UWP图标ImageFactory] QueryInterface IShellItemImageFactory 失败: app_path={}, error={:?}", app_path, e);
+                        return None;
+                    }
+                };
+                
+                // 定义图标尺寸（32x32）
+                let size = ::windows::Win32::Foundation::SIZE { cx: 32, cy: 32 };
+                
+                // 尝试不同的标志组合
+                // 先尝试：只要图标，允许更大尺寸
+                let flags_list = vec![
+                    SIIGBF((0x00000010u32 | 0x00000001u32) as i32), // SIIGBF_ICONONLY | SIIGBF_BIGGERSIZEOK
+                    SIIGBF(0x00000010u32 as i32), // SIIGBF_ICONONLY
+                    SIIGBF(0x00000000u32 as i32), // 默认标志
+                ];
+                
+                for (idx, flags) in flags_list.iter().enumerate() {
+                    // #region agent log
+                    eprintln!("[UWP图标ImageFactory] GetImage 尝试 {}: app_path={}, size=32x32, flags={:?}", idx, app_path, flags);
+                    // #endregion
+                    
+                    // 调用 GetImage 获取 HBITMAP
+                    match image_factory.GetImage(size, *flags) {
+                        Ok(hbitmap) => {
+                            // #region agent log
+                            eprintln!("[UWP图标ImageFactory] GetImage 成功: app_path={}, hbitmap={:?}", app_path, hbitmap);
+                            // #endregion
+                            
+                            // 将 HBITMAP 转换为 PNG
+                            let hbitmap_value = hbitmap.0 as isize;
+                            let png_result = bitmap_to_png(hbitmap_value);
+                            
+                            // 清理 HBITMAP
+                            let _ = DeleteObject(HGDIOBJ(hbitmap.0));
+                            
+                            if let Some(ref png_base64) = png_result {
+                                // #region agent log
+                                eprintln!("[UWP图标ImageFactory] bitmap_to_png 成功: app_path={}, base64_len={}", 
+                                    app_path, png_base64.len());
+                                // #endregion
+                                return Some(format!("data:image/png;base64,{}", png_base64));
+                            }
+                        },
+                        Err(e) => {
+                            // #region agent log
+                            eprintln!("[UWP图标ImageFactory] GetImage 失败 (尝试 {}): app_path={}, error={:?}", idx, app_path, e);
+                            // #endregion
+                            continue; // 尝试下一个标志
+                        }
+                    }
+                }
+                
+                None
+            })();
+            
+            // 清理 COM
+            CoUninitialize();
+            
+            result
+        }
+    }
+    
+    // 使用 SHGetFileInfoW 提取图标（回退方法）
+    fn extract_uwp_app_icon_via_shgetfileinfo(app_path: &str) -> Option<String> {
         use std::ffi::OsStr;
         use std::os::windows::ffi::OsStrExt;
         use windows_sys::Win32::UI::WindowsAndMessaging::DestroyIcon;
@@ -715,13 +819,8 @@ pub mod windows {
             );
             
             // #region agent log
-            use std::fs::OpenOptions;
-            use std::io::Write;
-            if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(r"d:\project\re-fast\.cursor\debug.log") {
-                let _ = writeln!(file, r#"{{"id":"log_uwp_icon_native_1","timestamp":{},"location":"app_search.rs:680","message":"SHGetFileInfoW called","data":{{"app_path":"{}","result":{},"h_icon":{}}},"sessionId":"debug-session","runId":"run1","hypothesisId":"A,B"}}"#, 
-                    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(), 
-                    app_path, result, shfi.h_icon);
-            }
+            eprintln!("[UWP图标SHGetFileInfo] 调用: app_path={}, result={}, h_icon={}", 
+                app_path, result, shfi.h_icon);
             // #endregion
             
             if result == 0 || shfi.h_icon == 0 {
@@ -732,10 +831,11 @@ pub mod windows {
             let icon_result = icon_to_png(shfi.h_icon);
             
             // #region agent log
-            if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(r"d:\project\re-fast\.cursor\debug.log") {
-                let _ = writeln!(file, r#"{{"id":"log_uwp_icon_native_2","timestamp":{},"location":"app_search.rs:700","message":"icon_to_png result","data":{{"app_path":"{}","success":{}}},"sessionId":"debug-session","runId":"run1","hypothesisId":"C"}}"#, 
-                    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(), 
-                    app_path, icon_result.is_some());
+            if let Some(ref png_base64) = icon_result {
+                eprintln!("[UWP图标SHGetFileInfo] icon_to_png 成功: app_path={}, base64_len={}", 
+                    app_path, png_base64.len());
+            } else {
+                eprintln!("[UWP图标SHGetFileInfo] icon_to_png 失败: app_path={}", app_path);
             }
             // #endregion
             
@@ -746,10 +846,195 @@ pub mod windows {
         }
     }
     
+    // 辅助函数：将 HBITMAP 转换为 PNG base64 字符串
+    fn bitmap_to_png(hbitmap: isize) -> Option<String> {
+        use windows_sys::Win32::Graphics::Gdi::{
+            GetDIBits, CreateCompatibleDC, SelectObject, DeleteObject, DeleteDC,
+            BITMAP, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, BI_RGB, GetDC, ReleaseDC,
+        };
+
+        unsafe {
+            let icon_size = 32;
+            
+            // 获取屏幕 DC
+            let hdc_screen = GetDC(0);
+            if hdc_screen == 0 {
+                return None;
+            }
+
+            let hdc = CreateCompatibleDC(hdc_screen);
+            if hdc == 0 {
+                ReleaseDC(0, hdc_screen);
+                return None;
+            }
+
+            // 获取位图信息
+            let mut bitmap = BITMAP {
+                bmType: 0,
+                bmWidth: 0,
+                bmHeight: 0,
+                bmWidthBytes: 0,
+                bmPlanes: 1,
+                bmBitsPixel: 32,
+                bmBits: std::ptr::null_mut(),
+            };
+            
+            // 获取位图尺寸
+            use windows_sys::Win32::Graphics::Gdi::GetObjectW;
+            if GetObjectW(hbitmap, std::mem::size_of::<BITMAP>() as i32, &mut bitmap as *mut _ as *mut _) == 0 {
+                DeleteDC(hdc);
+                ReleaseDC(0, hdc_screen);
+                return None;
+            }
+            
+            let width = bitmap.bmWidth as u32;
+            let height = bitmap.bmHeight.abs() as u32;
+            
+            // 创建新的 32x32 位图，使用透明背景
+            use windows_sys::Win32::Graphics::Gdi::{CreateDIBSection, DIB_RGB_COLORS, SelectObject};
+            
+            let mut bitmap_info = BITMAPINFO {
+                bmiHeader: BITMAPINFOHEADER {
+                    biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                    biWidth: icon_size as i32,
+                    biHeight: -(icon_size as i32), // 负值表示从上到下
+                    biPlanes: 1,
+                    biBitCount: 32,
+                    biCompression: BI_RGB,
+                    biSizeImage: 0,
+                    biXPelsPerMeter: 0,
+                    biYPelsPerMeter: 0,
+                    biClrUsed: 0,
+                    biClrImportant: 0,
+                },
+                bmiColors: [windows_sys::Win32::Graphics::Gdi::RGBQUAD {
+                    rgbBlue: 0,
+                    rgbGreen: 0,
+                    rgbRed: 0,
+                    rgbReserved: 0,
+                }; 1],
+            };
+
+            let mut bits_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+            let hbitmap_new = CreateDIBSection(
+                hdc,
+                &bitmap_info,
+                DIB_RGB_COLORS,
+                &mut bits_ptr,
+                0,
+                0,
+            ) as isize;
+
+            if hbitmap_new == 0 {
+                DeleteDC(hdc);
+                ReleaseDC(0, hdc_screen);
+                return None;
+            }
+
+            let old_bitmap = SelectObject(hdc, hbitmap_new);
+
+            // 将原始位图选入另一个 DC 以便复制
+            let hdc_source = CreateCompatibleDC(hdc_screen);
+            if hdc_source != 0 {
+                let old_bitmap_source = SelectObject(hdc_source, hbitmap);
+                
+                // 将原始位图绘制到新位图上（如果需要缩放）
+                use windows_sys::Win32::Graphics::Gdi::{StretchBlt, BitBlt, SRCCOPY};
+                
+                if width == icon_size && height == icon_size {
+                    // 尺寸相同，直接复制
+                    let _ = BitBlt(
+                        hdc,                    // 目标 DC
+                        0,                      // 目标 x
+                        0,                      // 目标 y
+                        icon_size as i32,       // 宽度
+                        icon_size as i32,       // 高度
+                        hdc_source,             // 源 DC
+                        0,                      // 源 x
+                        0,                      // 源 y
+                        SRCCOPY,                // 光栅操作码
+                    );
+                } else {
+                    // 需要缩放
+                    let _ = StretchBlt(
+                        hdc,                    // 目标 DC
+                        0,                      // 目标 x
+                        0,                      // 目标 y
+                        icon_size as i32,       // 目标宽度
+                        icon_size as i32,       // 目标高度
+                        hdc_source,             // 源 DC
+                        0,                      // 源 x
+                        0,                      // 源 y
+                        width as i32,           // 源宽度
+                        height as i32,          // 源高度
+                        SRCCOPY,                // 光栅操作码
+                    );
+                }
+                
+                SelectObject(hdc_source, old_bitmap_source);
+                DeleteDC(hdc_source);
+            }
+
+            // 读取新位图的数据
+            let mut bitmap_info_read = bitmap_info.clone();
+            let mut dib_bits = vec![0u8; (icon_size * icon_size * 4) as usize];
+            let lines_written = GetDIBits(
+                hdc_screen,
+                hbitmap_new,
+                0,
+                icon_size,
+                dib_bits.as_mut_ptr() as *mut _,
+                &mut bitmap_info_read,
+                DIB_RGB_COLORS,
+            );
+
+            SelectObject(hdc, old_bitmap);
+            DeleteObject(hbitmap_new);
+
+            DeleteDC(hdc);
+            ReleaseDC(0, hdc_screen);
+
+            if lines_written == 0 {
+                return None;
+            }
+
+            // 将 BGRA 转换为 RGBA，保持透明度
+            // 注意：此时 dib_bits 已经是 32x32 的位图数据，透明区域保持透明
+            for chunk in dib_bits.chunks_exact_mut(4) {
+                // 只交换 B 和 R 通道，保持 G 和 A 不变
+                chunk.swap(0, 2); // B <-> R
+            }
+
+            // 最终位图数据（已经是 32x32，透明背景）
+            let final_bits = dib_bits;
+
+            // 使用 png crate 编码为 PNG
+            let mut png_data = Vec::new();
+            {
+                let mut encoder = png::Encoder::new(
+                    std::io::Cursor::new(&mut png_data),
+                    32,
+                    32,
+                );
+                encoder.set_color(png::ColorType::Rgba);
+                encoder.set_depth(png::BitDepth::Eight);
+                let mut writer = encoder.write_header().ok()?;
+                writer.write_image_data(&final_bits).ok()?;
+            }
+
+            // 编码为 base64
+            Some(base64::engine::general_purpose::STANDARD.encode(&png_data))
+        }
+    }
+    
     // Extract icon from .exe file using Native Windows API
     // This is more reliable than PowerShell method for some exe files (like v2rayN.exe)
     fn extract_exe_icon_base64_native(file_path: &Path) -> Option<String> {
         let file_path_str = file_path.to_string_lossy().to_string();
+        
+        // #region agent log
+        eprintln!("[EXE图标Native] 开始提取: file_path={}", file_path_str);
+        // #endregion
         
         use std::ffi::OsStr;
         use std::os::windows::ffi::OsStrExt;
@@ -761,6 +1046,9 @@ pub mod windows {
         unsafe {
             let hr = CoInitializeEx(std::ptr::null_mut(), COINIT_APARTMENTTHREADED as u32);
             if hr < 0 {
+                // #region agent log
+                eprintln!("[EXE图标Native] CoInitializeEx 失败: file_path={}, hr={}", file_path_str, hr);
+                // #endregion
                 return None;
             }
         }
@@ -783,15 +1071,30 @@ pub mod windows {
                     1,
                 );
 
+                // #region agent log
+                eprintln!("[EXE图标Native] ExtractIconExW 调用: file_path={}, count={}, icon_handle={}", 
+                    file_path_str, count, large_icons[0]);
+                // #endregion
+
                 if count > 0 && large_icons[0] != 0 {
                     if let Some(png_data) = icon_to_png(large_icons[0]) {
+                        // #region agent log
+                        eprintln!("[EXE图标Native] icon_to_png 成功: file_path={}, png_len={}", 
+                            file_path_str, png_data.len());
+                        // #endregion
                         DestroyIcon(large_icons[0]);
                         return Some(format!("data:image/png;base64,{}", png_data));
                     }
+                    // #region agent log
+                    eprintln!("[EXE图标Native] icon_to_png 失败: file_path={}", file_path_str);
+                    // #endregion
                     DestroyIcon(large_icons[0]);
                 }
             }
 
+            // #region agent log
+            eprintln!("[EXE图标Native] 提取失败，返回 None: file_path={}", file_path_str);
+            // #endregion
             None
         })();
 
@@ -799,6 +1102,13 @@ pub mod windows {
         unsafe {
             CoUninitialize();
         }
+
+        // #region agent log
+        let success = result.is_some();
+        let icon_len = result.as_ref().map(|s| s.len()).unwrap_or(0);
+        eprintln!("[EXE图标Native] 最终结果: file_path={}, success={}, icon_len={}", 
+            file_path_str, success, icon_len);
+        // #endregion
 
         result
     }
@@ -809,10 +1119,22 @@ pub mod windows {
     pub fn extract_icon_base64(file_path: &Path) -> Option<String> {
         let file_path_str = file_path.to_string_lossy().to_string();
         
+        // #region agent log
+        eprintln!("[图标提取] 开始提取: file_path={}", file_path_str);
+        // #endregion
+        
         // 首先尝试 Native API 方法（更可靠，特别是对于某些 exe 文件如 v2rayN.exe）
         if let Some(result) = extract_exe_icon_base64_native(file_path) {
+            // #region agent log
+            eprintln!("[图标提取] Native API 成功: file_path={}, icon_len={}", 
+                file_path_str, result.len());
+            // #endregion
             return Some(result);
         }
+        
+        // #region agent log
+        eprintln!("[图标提取] Native API 失败，尝试 PowerShell: file_path={}", file_path_str);
+        // #endregion
         // 如果 Native API 失败，回退到 PowerShell 方法
         // Convert path to UTF-16 bytes for PowerShell parameter
         let path_utf16: Vec<u16> = file_path.to_string_lossy().encode_utf16().collect();
@@ -901,13 +1223,28 @@ try {
         // Clean up temp script
         let _ = std::fs::remove_file(&temp_script);
 
+        // #region agent log
+        let success = output.status.success();
+        let stdout_len = output.stdout.len();
+        let stderr_len = output.stderr.len();
+        eprintln!("[图标提取] PowerShell 执行结果: file_path={}, success={}, stdout_len={}, stderr_len={}", 
+            file_path_str, success, stdout_len, stderr_len);
+        // #endregion
+
         if output.status.success() {
             let base64 = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if !base64.is_empty() && base64.len() > 100 {
+                // #region agent log
+                eprintln!("[图标提取] PowerShell 成功: file_path={}, base64_len={}", 
+                    file_path_str, base64.len());
+                // #endregion
                 return Some(format!("data:image/png;base64,{}", base64));
             }
         }
         
+        // #region agent log
+        eprintln!("[图标提取] 提取失败，返回 None: file_path={}", file_path_str);
+        // #endregion
         None
     }
 
@@ -915,6 +1252,12 @@ try {
     // This is the new implementation using Rust + Windows API directly
     // Falls back to PowerShell method if Native API fails
     pub fn extract_lnk_icon_base64_native(lnk_path: &Path) -> Option<String> {
+        let lnk_path_str = lnk_path.to_string_lossy().to_string();
+        
+        // #region agent log
+        eprintln!("[LNK图标Native] 开始提取: lnk_path={}", lnk_path_str);
+        // #endregion
+        
         use std::ffi::OsStr;
         use std::os::windows::ffi::OsStrExt;
         use windows_sys::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
@@ -925,6 +1268,9 @@ try {
         unsafe {
             let hr = CoInitializeEx(std::ptr::null_mut(), COINIT_APARTMENTTHREADED as u32);
             if hr < 0 {
+                // #region agent log
+                eprintln!("[LNK图标Native] CoInitializeEx 失败: lnk_path={}, hr={}", lnk_path_str, hr);
+                // #endregion
                 return None;
             }
         }
@@ -932,8 +1278,17 @@ try {
         let result = (|| -> Option<String> {            // 方法 1: 尝试解析 .lnk 文件获取 IconLocation
             // 使用 PowerShell 快速获取 IconLocation 和 TargetPath（这部分很快，只是读取元数据）
             let (icon_source_path, icon_index) = match get_lnk_icon_location(lnk_path) {
-                Some(result) => result,
+                Some(result) => {
+                    // #region agent log
+                    eprintln!("[LNK图标Native] get_lnk_icon_location 成功: lnk_path={}, icon_source_path={}, icon_index={}", 
+                        lnk_path_str, result.0.to_string_lossy(), result.1);
+                    // #endregion
+                    result
+                },
                 None => {
+                    // #region agent log
+                    eprintln!("[LNK图标Native] get_lnk_icon_location 失败: lnk_path={}", lnk_path_str);
+                    // #endregion
                     return None;
                 }
             };
@@ -942,7 +1297,11 @@ try {
             let icon_source_wide: Vec<u16> = OsStr::new(&icon_source_path)
                 .encode_wide()
                 .chain(Some(0))
-                .collect();            unsafe {
+                .collect();
+            
+            let icon_source_path_str = icon_source_path.to_string_lossy().to_string();
+            
+            unsafe {
                 let mut large_icons: [isize; 1] = [0; 1];
                 let count = ExtractIconExW(
                     icon_source_wide.as_ptr(),
@@ -952,12 +1311,25 @@ try {
                     1,
                 );
 
+                // #region agent log
+                eprintln!("[LNK图标Native] ExtractIconExW 调用: lnk_path={}, icon_source_path={}, icon_index={}, count={}, icon_handle={}", 
+                    lnk_path_str, icon_source_path_str, icon_index, count, large_icons[0]);
+                // #endregion
+
                 if count > 0 && large_icons[0] != 0 {
                     if let Some(png_data) = icon_to_png(large_icons[0]) {
+                        // #region agent log
+                        eprintln!("[LNK图标Native] icon_to_png 成功: lnk_path={}, icon_source_path={}, png_len={}", 
+                            lnk_path_str, icon_source_path_str, png_data.len());
+                        // #endregion
                         // 清理图标句柄
                         DestroyIcon(large_icons[0]);
                         return Some(format!("data:image/png;base64,{}", png_data));
                     }
+                    // #region agent log
+                    eprintln!("[LNK图标Native] icon_to_png 失败: lnk_path={}, icon_source_path={}", 
+                        lnk_path_str, icon_source_path_str);
+                    // #endregion
                     // 清理图标句柄
                     DestroyIcon(large_icons[0]);
                 }
@@ -973,8 +1345,17 @@ try {
                         1,
                     );
 
+                    // #region agent log
+                    eprintln!("[LNK图标Native] ExtractIconExW 重试索引0: lnk_path={}, icon_source_path={}, count={}, icon_handle={}", 
+                        lnk_path_str, icon_source_path_str, count, large_icons[0]);
+                    // #endregion
+
                     if count > 0 && large_icons[0] != 0 {
                         if let Some(png_data) = icon_to_png(large_icons[0]) {
+                            // #region agent log
+                            eprintln!("[LNK图标Native] icon_to_png 成功(重试): lnk_path={}, icon_source_path={}, png_len={}", 
+                                lnk_path_str, icon_source_path_str, png_data.len());
+                            // #endregion
                             DestroyIcon(large_icons[0]);
                             return Some(format!("data:image/png;base64,{}", png_data));
                         }
@@ -983,6 +1364,9 @@ try {
                 }
             }
 
+            // #region agent log
+            eprintln!("[LNK图标Native] 提取失败，返回 None: lnk_path={}", lnk_path_str);
+            // #endregion
             None
         })();
 
@@ -990,6 +1374,13 @@ try {
         unsafe {
             CoUninitialize();
         }
+
+        // #region agent log
+        let success = result.is_some();
+        let icon_len = result.as_ref().map(|s| s.len()).unwrap_or(0);
+        eprintln!("[LNK图标Native] 最终结果: lnk_path={}, success={}, icon_len={}", 
+            lnk_path_str, success, icon_len);
+        // #endregion
 
         result
     }
@@ -1512,10 +1903,24 @@ try {
     // Tries IconLocation first, then falls back to TargetPath
     // This is the fallback method - kept for compatibility
     pub fn extract_lnk_icon_base64(lnk_path: &Path) -> Option<String> {
+        let lnk_path_str = lnk_path.to_string_lossy().to_string();
+        
+        // #region agent log
+        eprintln!("[LNK图标] 开始提取: lnk_path={}", lnk_path_str);
+        // #endregion
+        
         // 首先尝试 Native API 方法
         if let Some(result) = extract_lnk_icon_base64_native(lnk_path) {
+            // #region agent log
+            eprintln!("[LNK图标] Native API 成功: lnk_path={}, icon_len={}", 
+                lnk_path_str, result.len());
+            // #endregion
             return Some(result);
         }
+        
+        // #region agent log
+        eprintln!("[LNK图标] Native API 失败，尝试 PowerShell: lnk_path={}", lnk_path_str);
+        // #endregion
 
         // 如果 Native API 失败，回退到 PowerShell 方法
         // Convert path to UTF-16 bytes for PowerShell parameter

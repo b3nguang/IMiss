@@ -3204,6 +3204,7 @@ dependencies = [
  "tauri-plugin-shell",
  "thiserror 1.0.69",
  "tokio",
+ "windows",
  "windows-sys 0.52.0",
 ]
 

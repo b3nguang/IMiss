@@ -949,12 +949,14 @@ pub async fn populate_app_icons(
                 break;
             }
 
-            if app_info.icon.is_some() {
-                continue;
-            }
-
+            // 为了测试，每次应用都重新提取图标（即使已经有图标）
             let path = Path::new(&app_info.path);
             let path_str = app_info.path.to_lowercase();
+            
+            // #region agent log
+            eprintln!("[图标提取] 处理应用: name={}, path={}, has_existing_icon={}", 
+                app_info.name, app_info.path, app_info.icon.is_some());
+            // #endregion
             
             let icon = if path_str.starts_with("shell:appsfolder\\") {
                 // UWP app - extract icon using special method
@@ -974,6 +976,14 @@ pub async fn populate_app_icons(
                 }
             };
 
+            // #region agent log
+            let icon_extracted = icon.is_some();
+            let icon_len = icon.as_ref().map(|s| s.len()).unwrap_or(0);
+            eprintln!("[图标提取] 提取结果: name={}, path={}, icon_extracted={}, icon_len={}", 
+                app_info.name, app_info.path, icon_extracted, icon_len);
+            // #endregion
+
+            // 无论是否成功提取，都更新图标（如果提取失败，保留原有图标）
             if let Some(icon_data) = icon {
                 app_info.icon = Some(icon_data);
                 updated = true;

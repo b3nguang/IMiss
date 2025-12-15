@@ -1450,45 +1450,7 @@ export function LauncherWindow() {
       //   });
       // }, 51000);
       
-      // ========== 应用搜索时间追踪 ==========
-      const debounceStartTimeLocal = debounceStartTime; // 在正确的作用域内定义
-      const beforeSearchAppsTime = performance.now();
-      const timeSinceDebounce = beforeSearchAppsTime - debounceStartTimeLocal;
-      console.log(`[应用搜索-时间追踪] 准备调用 searchApplications`);
-      console.log(`  - 防抖开始到准备调用耗时: ${timeSinceDebounce.toFixed(2)}ms (防抖时间: ${debounceTime}ms)`);
-      
-      const searchAppsCallTime = performance.now();
-      const timeToCall = searchAppsCallTime - beforeSearchAppsTime;
-      console.log(`[应用搜索-时间追踪] 开始调用 searchApplications，从准备到调用耗时: ${timeToCall.toFixed(2)}ms`);
-      
-      // 使用 requestIdleCallback 或 setTimeout(0) 来检查是否有事件循环阻塞
-      const asyncCallStart = performance.now();
-      Promise.resolve().then(() => {
-        const asyncDelay = performance.now() - asyncCallStart;
-        if (asyncDelay > 5) {
-          console.warn(`[应用搜索-时间追踪] ⚠️ 检测到事件循环延迟: ${asyncDelay.toFixed(2)}ms (可能被其他任务阻塞)`);
-        }
-      });
-      
-      searchApplications(trimmedQuery).then(() => {
-        const afterSearchAppsTime = performance.now();
-        const searchAppsDuration = afterSearchAppsTime - beforeSearchAppsTime;
-        const searchAppsCallToFinish = afterSearchAppsTime - searchAppsCallTime;
-        const totalTimeSinceDebounce = afterSearchAppsTime - debounceStartTimeLocal;
-        
-        console.log(`[应用搜索-时间追踪] ========== 应用搜索完成 ==========`);
-        console.log(`  - 从准备到完成总耗时: ${searchAppsDuration.toFixed(2)}ms`);
-        console.log(`  - 从调用到完成耗时: ${searchAppsCallToFinish.toFixed(2)}ms`);
-        console.log(`  - 从防抖开始到完成总耗时: ${totalTimeSinceDebounce.toFixed(2)}ms`);
-        console.log(`  - 防抖延迟: ${debounceTime}ms`);
-        console.log(`  - 防抖后到调用延迟: ${timeToCall.toFixed(2)}ms`);
-        console.log(`  - 函数执行时间: ${searchAppsCallToFinish.toFixed(2)}ms`);
-        console.log(`  - 时间差分析: 总耗时(${searchAppsDuration.toFixed(2)}ms) = 防抖(${debounceTime}ms) + 调用延迟(${timeToCall.toFixed(2)}ms) + 执行(${searchAppsCallToFinish.toFixed(2)}ms) + 其他(${(searchAppsDuration - debounceTime - timeToCall - searchAppsCallToFinish).toFixed(2)}ms)`);
-      }).catch((error) => {
-        const afterSearchAppsTime = performance.now();
-        const searchAppsDuration = afterSearchAppsTime - beforeSearchAppsTime;
-        console.error(`[应用搜索-时间追踪] ✗ 应用搜索失败，耗时: ${searchAppsDuration.toFixed(2)}ms, 错误:`, error);
-      });
+      searchApplications(trimmedQuery);
       
       // 备忘录和插件搜索是纯前端过滤，立即执行（不会阻塞）
       const memosPluginsStart = performance.now();
@@ -3297,20 +3259,12 @@ export function LauncherWindow() {
 
   // 前端搜索应用（基于缓存的应用列表）
   const searchAppsFrontend = (query: string, apps: AppInfo[]): AppInfo[] => {
-    const searchStart = performance.now();
-    console.log(`[应用搜索-前端] 开始搜索，查询: "${query}", 应用总数: ${apps.length}`);
-    
     if (!query || query.trim() === "") {
-      const emptyDuration = performance.now() - searchStart;
-      console.log(`[应用搜索-前端] 空查询，返回前10个应用，耗时: ${emptyDuration.toFixed(2)}ms`);
       return apps.slice(0, 10);
     }
 
-    const queryLowerStart = performance.now();
     const queryLower = query.trim().toLowerCase();
     const queryIsPinyin = !containsChinese(queryLower);
-    const queryLowerDuration = performance.now() - queryLowerStart;
-    console.log(`[应用搜索-前端] 查询预处理完成，耗时: ${queryLowerDuration.toFixed(2)}ms, 是否为拼音: ${queryIsPinyin}`);
     
     const MAX_PERFECT_MATCHES = 3;
     const MAX_RESULTS = 20;
@@ -3319,56 +3273,40 @@ export function LauncherWindow() {
     const results: Array<{ index: number; score: number }> = [];
     let perfectMatches = 0;
 
-    const loopStart = performance.now();
-    let appsChecked = 0;
-    let stringOpsCount = 0;
-    let toLowerCaseCount = 0;
-    let nameMatchTime = 0;
-    let pinyinMatchTime = 0;
-    let pathMatchTime = 0;
-    
     for (let idx = 0; idx < apps.length; idx++) {
-      appsChecked++;
       const app = apps[idx];
       let score = 0;
 
       // 名称匹配（最高优先级）
-      const nameMatchStart = performance.now();
       const nameLower = app.name.toLowerCase();
-      toLowerCaseCount++;
-      stringOpsCount++;
       
-      // 优化：使用更高效的匹配顺序，减少不必要的字符串操作
-      if (nameLower === queryLower) {
-        score += 1000;
-        perfectMatches++;
-        // 短查询（如 "qq"）立即返回第一个完全匹配
-        if (queryLower.length <= 3 && perfectMatches >= 1) {
-          results.push({ index: idx, score });
-          break;
+        // 优化：使用更高效的匹配顺序，减少不必要的字符串操作
+        if (nameLower === queryLower) {
+          score += 1000;
+          perfectMatches++;
+          // 短查询（如 "qq"）立即返回第一个完全匹配
+          if (queryLower.length <= 3 && perfectMatches >= 1) {
+            results.push({ index: idx, score });
+            break;
+          }
+          // 找到足够完全匹配时提前退出
+          if (perfectMatches >= MAX_PERFECT_MATCHES) {
+            results.push({ index: idx, score });
+            break;
+          }
+        } else {
+          // 优化：只在非完全匹配时才执行其他检查
+          // 先检查 startsWith（更常见的情况），再检查 includes（更耗时）
+          if (nameLower.startsWith(queryLower)) {
+            score += 500;
+          } else if (nameLower.includes(queryLower)) {
+            score += 100;
+          }
         }
-        // 找到足够完全匹配时提前退出
-        if (perfectMatches >= MAX_PERFECT_MATCHES) {
-          results.push({ index: idx, score });
-          break;
-        }
-      } else {
-        // 优化：只在非完全匹配时才执行其他检查
-        // 先检查 startsWith（更常见的情况），再检查 includes（更耗时）
-        if (nameLower.startsWith(queryLower)) {
-          stringOpsCount++;
-          score += 500;
-        } else if (nameLower.includes(queryLower)) {
-          stringOpsCount++;
-          score += 100;
-        }
-      }
-      nameMatchTime += performance.now() - nameMatchStart;
 
       // 拼音匹配（如果查询是拼音，且名称未完全匹配）
       // 优化：只在名称匹配分数较低时才检查拼音，避免不必要的字符串操作
       if (score < 500 && queryIsPinyin && app.name_pinyin && app.name_pinyin_initials) {
-        const pinyinMatchStart = performance.now();
         // 完整拼音匹配
         if (app.name_pinyin === queryLower) {
           score += 800;
@@ -3378,10 +3316,8 @@ export function LauncherWindow() {
             break;
           }
         } else if (app.name_pinyin.startsWith(queryLower)) {
-          stringOpsCount++;
           score += 400;
         } else if (app.name_pinyin.includes(queryLower)) {
-          stringOpsCount++;
           score += 150;
         }
 
@@ -3390,100 +3326,55 @@ export function LauncherWindow() {
           if (app.name_pinyin_initials === queryLower) {
             score += 600;
           } else if (app.name_pinyin_initials.startsWith(queryLower)) {
-            stringOpsCount++;
             score += 300;
           } else if (app.name_pinyin_initials.includes(queryLower)) {
-            stringOpsCount++;
             score += 120;
           }
         }
-        pinyinMatchTime += performance.now() - pinyinMatchStart;
       }
 
       // 路径匹配（仅在名称未匹配时检查，节省时间）
       if (score === 0) {
-        const pathMatchStart = performance.now();
         const pathLower = app.path.toLowerCase();
-        toLowerCaseCount++;
-        stringOpsCount++;
         if (pathLower.includes(queryLower)) {
-          stringOpsCount++;
           score += 10;
         }
-        pathMatchTime += performance.now() - pathMatchStart;
       }
 
       if (score > 0) {
         results.push({ index: idx, score });
       }
     }
-    const loopDuration = performance.now() - loopStart;
-    console.log(`[应用搜索-前端] 遍历完成，耗时: ${loopDuration.toFixed(2)}ms`);
-    console.log(`  - 检查应用数: ${appsChecked}`);
-    console.log(`  - 名称匹配耗时: ${nameMatchTime.toFixed(2)}ms`);
-    console.log(`  - 拼音匹配耗时: ${pinyinMatchTime.toFixed(2)}ms`);
-    console.log(`  - 路径匹配耗时: ${pathMatchTime.toFixed(2)}ms`);
-    console.log(`  - 字符串操作次数: ${stringOpsCount}, toLowerCase次数: ${toLowerCaseCount}`);
-    console.log(`  - 找到匹配数: ${results.length}, 完全匹配数: ${perfectMatches}`);
 
     // 如果有完全匹配且提前退出，直接返回
     if (perfectMatches >= MAX_PERFECT_MATCHES && results.length <= MAX_PERFECT_MATCHES) {
-      const mapStart = performance.now();
       const finalResults = results.map((r) => apps[r.index]);
-      const mapDuration = performance.now() - mapStart;
-      const totalDuration = performance.now() - searchStart;
-      console.log(`[应用搜索-前端] 提前退出（完全匹配足够），映射耗时: ${mapDuration.toFixed(2)}ms, 总耗时: ${totalDuration.toFixed(2)}ms, 结果数: ${finalResults.length}`);
       return finalResults;
     }
 
     // 按分数排序
-    const sortStart = performance.now();
     results.sort((a, b) => b.score - a.score);
-    const sortDuration = performance.now() - sortStart;
-    console.log(`[应用搜索-前端] 排序完成，耗时: ${sortDuration.toFixed(2)}ms, 排序前结果数: ${results.length}`);
     
     // 限制结果数量并返回
-    const sliceMapStart = performance.now();
     const finalResults = results.slice(0, MAX_RESULTS).map((r) => apps[r.index]);
-    const sliceMapDuration = performance.now() - sliceMapStart;
-    const totalDuration = performance.now() - searchStart;
-    console.log(`[应用搜索-前端] 切片和映射完成，耗时: ${sliceMapDuration.toFixed(2)}ms`);
-    console.log(`[应用搜索-前端] 搜索完成，总耗时: ${totalDuration.toFixed(2)}ms, 最终结果数: ${finalResults.length}`);
     return finalResults;
   };
 
   // 执行应用搜索（前端搜索，使用缓存的应用列表）
   const performAppSearch = async (searchQuery: string): Promise<AppInfo[]> => {
-    const performStart = performance.now();
-    console.log(`[应用搜索-performAppSearch] 开始，查询: "${searchQuery}", 缓存已加载: ${allAppsCacheLoadedRef.current}, 缓存大小: ${allAppsCacheRef.current.length}`);
-    
     // 如果缓存未加载，先加载所有应用
     if (!allAppsCacheLoadedRef.current || allAppsCacheRef.current.length === 0) {
-      const loadStart = performance.now();
-      console.log(`[应用搜索-performAppSearch] 缓存未加载，开始从后端加载应用列表...`);
       try {
         const allApps = await tauriApi.scanApplications();
-        const loadDuration = performance.now() - loadStart;
         allAppsCacheRef.current = allApps;
         allAppsCacheLoadedRef.current = true;
-        console.log(`[应用搜索-performAppSearch] ✓ 应用列表已加载到前端缓存，共 ${allApps.length} 个应用，耗时: ${loadDuration.toFixed(2)}ms`);
       } catch (error) {
-        const loadDuration = performance.now() - loadStart;
-        console.error(`[应用搜索-performAppSearch] ✗ 加载应用列表失败，耗时: ${loadDuration.toFixed(2)}ms, 错误:`, error);
         return [];
       }
-    } else {
-      console.log(`[应用搜索-performAppSearch] ✓ 使用前端缓存，缓存中有 ${allAppsCacheRef.current.length} 个应用`);
     }
 
     // 使用前端搜索
-    const searchStart = performance.now();
-    console.log(`[应用搜索-performAppSearch] 开始调用 searchAppsFrontend，应用数: ${allAppsCacheRef.current.length}`);
     const results = searchAppsFrontend(searchQuery, allAppsCacheRef.current);
-    const searchDuration = performance.now() - searchStart;
-    const totalDuration = performance.now() - performStart;
-    console.log(`[应用搜索-performAppSearch] 前端搜索完成，耗时: ${searchDuration.toFixed(2)}ms, 找到结果数: ${results.length}`);
-    console.log(`[应用搜索-performAppSearch] 总耗时: ${totalDuration.toFixed(2)}ms`);
     return results;
   };
   
@@ -3495,34 +3386,16 @@ export function LauncherWindow() {
 
   // 更新搜索结果（带查询验证）
   const updateAppSearchResults = (results: AppInfo[], searchQuery: string): void => {
-    const updateStartTime = performance.now();
     const currentQueryTrimmed = query.trim();
     const searchQueryTrimmed = searchQuery.trim();
     const shouldUpdate = currentQueryTrimmed === searchQueryTrimmed;
-
-    console.log(`[应用搜索-updateAppSearchResults] 开始更新结果，结果数: ${results.length}, 查询匹配: ${shouldUpdate}`);
     
     // 使用普通状态更新，React 18 会自动优化渲染性能
     // 移除 flushSync，因为它会在某些情况下导致同步渲染阻塞主线程
     if (shouldUpdate) {
-      const beforeSetState = performance.now();
       setFilteredApps(results);
-      const afterSetState = performance.now();
-      const setStateDuration = afterSetState - beforeSetState;
-      const totalUpdateDuration = afterSetState - updateStartTime;
-      
-      console.log(`[应用搜索-updateAppSearchResults] setState 调用耗时: ${setStateDuration.toFixed(2)}ms`);
-      console.log(`[应用搜索-updateAppSearchResults] 总更新耗时: ${totalUpdateDuration.toFixed(2)}ms`);
-      console.log(`[应用搜索-updateAppSearchResults] ⚠️ 注意: React 状态更新是异步的，UI 渲染会在下一个渲染周期完成`);
-      
-      // 使用 requestAnimationFrame 来追踪实际渲染时间
-      requestAnimationFrame(() => {
-        const renderTime = performance.now() - afterSetState;
-        console.log(`[应用搜索-updateAppSearchResults] 渲染完成（requestAnimationFrame），从 setState 到渲染耗时: ${renderTime.toFixed(2)}ms`);
-      });
     } else {
       // 查询在搜索过程中已改变，忽略结果
-      console.log(`[应用搜索-updateAppSearchResults] 查询已改变，忽略结果`);
       setFilteredApps([]);
     }
   };
@@ -3648,105 +3521,40 @@ export function LauncherWindow() {
 
   // 主搜索函数：协调各个子功能
   const searchApplications = async (searchQuery: string) => {
-    const funcEntryTime = performance.now();
-    console.log(`[应用搜索-searchApplications] ========== 开始搜索 ==========`);
-    console.log(`[应用搜索-searchApplications] 查询: "${searchQuery}"`);
-    console.log(`[应用搜索-searchApplications] 函数入口时间戳: ${funcEntryTime.toFixed(2)}ms`);
-    
-    const perfStart = APP_SEARCH_DEBUG_CONFIG.enablePerformanceLog ? performance.now() : 0;
-    const funcEntryDelay = perfStart - funcEntryTime;
-    if (funcEntryDelay > 1) {
-      console.warn(`[应用搜索-searchApplications] ⚠️ 函数入口到开始执行有延迟: ${funcEntryDelay.toFixed(2)}ms (可能被事件循环阻塞)`);
-    }
-    let stepTimeSum = 0; // 累计各步骤耗时，用于验证总耗时
-    let logOverhead = 0; // 累计日志输出开销
-    let perfNowOverhead = 0; // 累计 performance.now() 调用开销
     
     // 立即清空旧结果，避免显示上一个搜索的结果
     if (APP_SEARCH_DEBUG_CONFIG.enableClearResults) {
-      const clearStart = APP_SEARCH_DEBUG_CONFIG.enablePerformanceLog ? performance.now() : 0;
-      console.log(`[应用搜索-searchApplications] [步骤1] 开始清空旧结果...`);
       clearAppSearchResults();
-      const clearDuration = performance.now() - clearStart;
-      if (APP_SEARCH_DEBUG_CONFIG.enablePerformanceLog) {
-        const perfNow1 = performance.now();
-        stepTimeSum += clearDuration;
-        const logStart = performance.now();
-        console.log(`[应用搜索-searchApplications] [步骤1] 清空结果完成，耗时: ${clearDuration.toFixed(2)}ms`);
-        logOverhead += performance.now() - logStart;
-        perfNowOverhead += (perfNow1 - clearStart) - clearDuration;
-      }
     }
     
     try {
       // 简化验证：只验证一次，避免重复验证的开销
       if (APP_SEARCH_DEBUG_CONFIG.enableQueryValidation) {
-        const validateStart = APP_SEARCH_DEBUG_CONFIG.enablePerformanceLog ? performance.now() : 0;
-        console.log(`[应用搜索-searchApplications] [步骤2] 开始验证查询...`);
         const isValid = validateSearchQuery(searchQuery);
         if (!isValid) {
-          console.log(`[应用搜索-searchApplications] [步骤2] 查询验证失败，查询为空`);
           if (APP_SEARCH_DEBUG_CONFIG.enableClearResults) {
             clearAppSearchResults();
           }
           return;
         }
-        if (APP_SEARCH_DEBUG_CONFIG.enablePerformanceLog) {
-          const perfNow1 = performance.now();
-          const validateDuration = perfNow1 - validateStart;
-          stepTimeSum += validateDuration;
-          const logStart = performance.now();
-          console.log(`[应用搜索-searchApplications] [步骤2] 查询验证完成，耗时: ${validateDuration.toFixed(2)}ms`);
-          logOverhead += performance.now() - logStart;
-        }
       }
       
       // 确保应用列表已加载（仅在需要时）
       if (APP_SEARCH_DEBUG_CONFIG.enableEnsureAppsLoaded) {
-        const ensureStart = APP_SEARCH_DEBUG_CONFIG.enablePerformanceLog ? performance.now() : 0;
-        console.log(`[应用搜索-searchApplications] [步骤3] 开始确保应用列表已加载...`);
         await ensureAppsLoaded();
-        if (APP_SEARCH_DEBUG_CONFIG.enablePerformanceLog) {
-          const perfNow1 = performance.now();
-          const ensureDuration = perfNow1 - ensureStart;
-          stepTimeSum += ensureDuration;
-          const logStart = performance.now();
-          console.log(`[应用搜索-searchApplications] [步骤3] 确保应用加载完成，耗时: ${ensureDuration.toFixed(2)}ms`);
-          logOverhead += performance.now() - logStart;
-        }
       }
       
       // 执行搜索
       let results: AppInfo[] = [];
       if (APP_SEARCH_DEBUG_CONFIG.enablePerformSearch) {
-        const searchStart = APP_SEARCH_DEBUG_CONFIG.enablePerformanceLog ? performance.now() : 0;
-        console.log(`[应用搜索-searchApplications] [步骤4] 开始执行搜索...`);
         results = await performAppSearch(searchQuery);
-        if (APP_SEARCH_DEBUG_CONFIG.enablePerformanceLog) {
-          const perfNow1 = performance.now();
-          const searchDuration = perfNow1 - searchStart;
-          stepTimeSum += searchDuration;
-          const logStart = performance.now();
-          console.log(`[应用搜索-searchApplications] [步骤4] 执行搜索完成，耗时: ${searchDuration.toFixed(2)}ms, 结果数: ${results.length}`);
-          logOverhead += performance.now() - logStart;
-        }
       }
       
       // 更新搜索结果（带查询验证）
       if (APP_SEARCH_DEBUG_CONFIG.enableUpdateResults) {
-        const updateStart = APP_SEARCH_DEBUG_CONFIG.enablePerformanceLog ? performance.now() : 0;
-        console.log(`[应用搜索-searchApplications] [步骤5] 开始更新搜索结果...`);
         updateAppSearchResults(results, searchQuery);
-        if (APP_SEARCH_DEBUG_CONFIG.enablePerformanceLog) {
-          const updateDuration = performance.now() - updateStart;
-          stepTimeSum += updateDuration;
-          const logStart = performance.now();
-          console.log(`[应用搜索-searchApplications] [步骤5] 更新结果完成，耗时: ${updateDuration.toFixed(2)}ms`);
-          logOverhead += performance.now() - logStart;
-        }
       }
     } catch (error) {
-      console.error(`[应用搜索-searchApplications] ✗ 搜索过程出错:`, error);
       // 仅在查询为空时清空结果
       if (APP_SEARCH_DEBUG_CONFIG.enableQueryValidation && !validateSearchQuery(searchQuery)) {
         if (APP_SEARCH_DEBUG_CONFIG.enableClearResults) {
@@ -3754,24 +3562,6 @@ export function LauncherWindow() {
         }
       }
     } finally {
-      if (APP_SEARCH_DEBUG_CONFIG.enablePerformanceLog) {
-        const totalDuration = performance.now() - perfStart;
-        const overhead = totalDuration - stepTimeSum - logOverhead;
-        const funcExitTime = performance.now();
-        const funcTotalTime = funcExitTime - funcEntryTime;
-        
-        console.log(`[应用搜索-searchApplications] ========== 搜索完成 ==========`);
-        console.log(`[应用搜索-searchApplications] 函数内部总耗时: ${totalDuration.toFixed(2)}ms`);
-        console.log(`[应用搜索-searchApplications] 从函数入口到退出总耗时: ${funcTotalTime.toFixed(2)}ms`);
-        console.log(`[应用搜索-searchApplications] 各步骤累计: ${stepTimeSum.toFixed(2)}ms`);
-        console.log(`[应用搜索-searchApplications] 日志输出开销: ${logOverhead.toFixed(2)}ms (console.log 执行时间)`);
-        console.log(`[应用搜索-searchApplications] 其他未记录开销: ${overhead.toFixed(2)}ms (函数调用、条件判断、try-catch、performance.now等)`);
-        
-        if (funcTotalTime - totalDuration > 5) {
-          console.warn(`[应用搜索-searchApplications] ⚠️ 函数总耗时(${funcTotalTime.toFixed(2)}ms) 明显大于内部耗时(${totalDuration.toFixed(2)}ms)，差值: ${(funcTotalTime - totalDuration).toFixed(2)}ms`);
-          console.warn(`[应用搜索-searchApplications] ⚠️ 这可能表示函数执行过程中被其他任务阻塞（如其他搜索、事件处理等）`);
-        }
-      }
     }
   };
 
@@ -3984,9 +3774,8 @@ export function LauncherWindow() {
       if (!target) return;
       try {
         await tauriApi.closeEverythingSearchSession(target);
-        console.log("[Launcher] 关闭搜索会话:", target);
       } catch (error) {
-        console.warn("[Launcher] 关闭搜索会话失败:", error);
+        // 静默处理错误
       }
     },
     []
@@ -3999,8 +3788,6 @@ export function LauncherWindow() {
       const funcStart = performance.now();
       fetch('http://127.0.0.1:7242/ingest/7b6f7af1-8135-4973-8f41-60f30b037947',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'LauncherWindow.tsx:3860',message:'startSearchSession 开始',data:{searchQuery},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H'})}).catch(()=>{});
       // #endregion
-      
-      console.log("[Launcher] startSearchSession 被调用，查询:", searchQuery, "isEverythingAvailable:", isEverythingAvailable);
       
       if (!searchQuery || searchQuery.trim() === "") {
         // #region agent log
@@ -4065,7 +3852,6 @@ export function LauncherWindow() {
 
       // 如果相同查询的会话正在创建中，直接返回
       if (creatingSessionQueryRef.current === trimmed) {
-        console.log("[Launcher] 相同查询的会话正在创建中，等待完成");
         // #region agent log
         const funcDuration = performance.now() - funcStart;
         fetch('http://127.0.0.1:7242/ingest/7b6f7af1-8135-4973-8f41-60f30b037947',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'LauncherWindow.tsx:3903',message:'startSearchSession 完成（会话创建中）',data:{funcDuration},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H'})}).catch(()=>{});
@@ -4078,7 +3864,6 @@ export function LauncherWindow() {
         pendingSessionIdRef.current &&
         currentSearchQueryRef.current === trimmed
       ) {
-        console.log("[Launcher] 相同查询已有活跃会话，跳过");
         // #region agent log
         const funcDuration = performance.now() - funcStart;
         fetch('http://127.0.0.1:7242/ingest/7b6f7af1-8135-4973-8f41-60f30b037947',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'LauncherWindow.tsx:3910',message:'startSearchSession 完成（已有活跃会话）',data:{funcDuration},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H'})}).catch(()=>{});
@@ -4093,8 +3878,8 @@ export function LauncherWindow() {
       const oldSessionId = pendingSessionIdRef.current;
       if (oldSessionId) {
         // 不等待关闭完成，立即开始新搜索
-        closeSessionSafe(oldSessionId).catch((err) => {
-          console.warn("[Launcher] 关闭旧会话失败:", err);
+        closeSessionSafe(oldSessionId).catch(() => {
+          // 静默处理错误
         });
       }
       // 在创建新会话前先清空 pendingSessionIdRef，防止旧的请求使用已失效的会话
@@ -4107,7 +3892,6 @@ export function LauncherWindow() {
       setIsSearchingEverything(true);
 
       try {
-        console.log("[Launcher] 开始创建搜索会话，查询:", trimmed);
         // #region agent log
         const createSessionStart = performance.now();
         fetch('http://127.0.0.1:7242/ingest/7b6f7af1-8135-4973-8f41-60f30b037947',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'LauncherWindow.tsx:3937',message:'开始创建 Everything 会话',data:{query:trimmed,timeSinceFuncStart:createSessionStart-funcStart},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H'})}).catch(()=>{});
@@ -4141,16 +3925,8 @@ export function LauncherWindow() {
         fetch('http://127.0.0.1:7242/ingest/7b6f7af1-8135-4973-8f41-60f30b037947',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'LauncherWindow.tsx:3954',message:'Everything 会话创建成功',data:{createSessionDuration,sessionId:session.sessionId,totalCount:session.totalCount},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H'})}).catch(()=>{});
         // #endregion
 
-        console.log("[Launcher] 搜索会话创建成功，会话ID:", session.sessionId, "总数:", session.totalCount, "查询:", trimmed);
-        
-        // 调试：如果总数为0，记录警告
-        if (session.totalCount === 0) {
-          console.warn("[Launcher] 警告：会话创建成功但总数为0，查询:", trimmed);
-        }
-
         // 检查查询是否仍然有效
         if (currentSearchQueryRef.current !== trimmed) {
-          console.log("[Launcher] 查询已切换，忽略旧会话结果");
           await closeSessionSafe(session.sessionId);
           pendingSessionIdRef.current = null;
           creatingSessionQueryRef.current = null;
@@ -4167,8 +3943,6 @@ export function LauncherWindow() {
         const offset = 0;
         const currentSessionId = session.sessionId;
         const currentQueryForPage = trimmed;
-
-        console.log("[Launcher] 开始获取首屏页，会话ID:", currentSessionId, "offset:", offset, "limit:", LAUNCHER_PAGE_SIZE);
 
         // #region agent log
         const fetchFirstPageStart = performance.now();
@@ -4191,13 +3965,6 @@ export function LauncherWindow() {
             const fetchFirstPageDuration = performance.now() - fetchFirstPageStart;
             fetch('http://127.0.0.1:7242/ingest/7b6f7af1-8135-4973-8f41-60f30b037947',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'LauncherWindow.tsx:4038',message:'Everything 首屏页获取成功',data:{fetchFirstPageDuration,itemsCount:res.items.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H'})}).catch(()=>{});
             // #endregion
-            
-            console.log("[Launcher] 首屏页获取成功，返回", res.items.length, "条结果", {
-              sessionId: currentSessionId,
-              offset,
-              limit: LAUNCHER_PAGE_SIZE,
-              items: res.items.slice(0, 3).map(i => i.path) // 只打印前3条路径用于调试
-            });
 
             // 检查会话和查询是否仍然有效
             const currentPendingSessionId = pendingSessionIdRef.current;
@@ -4205,10 +3972,6 @@ export function LauncherWindow() {
             const isQueryStillValid = currentSearchQueryRef.current === currentQueryForPage;
 
             if (!isSessionStillValid || !isQueryStillValid) {
-              console.log(
-                "[Launcher] 会话或查询已切换，忽略旧会话的首屏页结果",
-                `会话有效: ${isSessionStillValid}, 查询有效: ${isQueryStillValid}`
-              );
               if (!pendingSessionIdRef.current) {
                 setIsSearchingEverything(false);
               }
@@ -4216,15 +3979,6 @@ export function LauncherWindow() {
             }
 
             // 更新结果
-            console.log("[Launcher] 更新结果到状态，实际数量:", res.items.length, "请求数量:", LAUNCHER_PAGE_SIZE, "会话总数:", session.totalCount);
-            
-            // 调试：检查结果数量是否匹配
-            if (res.items.length === 0 && session.totalCount > 0) {
-              console.warn("[Launcher] 警告：获取到的结果为空，但会话总数是:", session.totalCount);
-            } else if (res.items.length < Math.min(LAUNCHER_PAGE_SIZE, session.totalCount)) {
-              console.warn("[Launcher] 警告：返回的结果数量少于预期，实际:", res.items.length, "预期:", Math.min(LAUNCHER_PAGE_SIZE, session.totalCount));
-            }
-            
             setEverythingResults(res.items);
             setEverythingCurrentCount(res.items.length);
             displayedSearchQueryRef.current = trimmed;
@@ -4246,11 +4000,8 @@ export function LauncherWindow() {
             const isQueryStillValid = currentSearchQueryRef.current === currentQueryForPage;
 
             if (!isSessionStillValid || !isQueryStillValid) {
-              console.log("[Launcher] 会话或查询已切换，忽略首屏页错误");
               return;
             }
-
-            console.error("[Launcher] 获取首屏页失败:", error);
             const errorStr = typeof error === "string" ? error : String(error);
             
             // 检查是否是服务不可用错误
@@ -4283,8 +4034,6 @@ export function LauncherWindow() {
         const funcDuration = performance.now() - funcStart;
         fetch('http://127.0.0.1:7242/ingest/7b6f7af1-8135-4973-8f41-60f30b037947',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'LauncherWindow.tsx:4134',message:'startSearchSession 错误（创建会话失败）',data:{funcDuration,error:String(error)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H'})}).catch(()=>{});
         // #endregion
-        console.error("[Launcher] 创建搜索会话失败:", error);
-        
         const errorStr = typeof error === "string" ? error : String(error);
         if (
           errorStr.includes('NOT_INSTALLED') ||
@@ -4318,8 +4067,8 @@ export function LauncherWindow() {
     return () => {
       const oldSessionId = pendingSessionIdRef.current;
       if (oldSessionId) {
-        closeSessionSafe(oldSessionId).catch((error) => {
-          console.warn("[Launcher] 组件卸载时关闭会话失败:", error);
+        closeSessionSafe(oldSessionId).catch(() => {
+          // 静默处理错误
         });
       }
     };
