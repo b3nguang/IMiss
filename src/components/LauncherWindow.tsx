@@ -1580,6 +1580,14 @@ export function LauncherWindow() {
     
     let recycleBinFilteredCount = 0;
     let duplicateFilteredCount = 0;
+
+    // 规范化应用名称用于去重，忽略大小写与可执行/快捷方式后缀
+    const normalizeAppName = (name: string): string =>
+      name.toLowerCase().replace(/\.(exe|lnk)$/i, "").trim();
+    // 已存在的应用名称集合（含 filteredApps）
+    const normalizedAppNameSet = new Set<string>(
+      filteredApps.map((app) => normalizeAppName(app.name))
+    );
     
     const filteredExecutableEverything = executableEverythingResults
       .filter((everything) => {
@@ -1593,19 +1601,26 @@ export function LauncherWindow() {
       })
       .filter((everything) => {
         // 检查是否已经在 filteredApps 或 filteredFiles 中，如果已存在则过滤掉
+        const normalizedEverythingPath = everything.path.toLowerCase().replace(/\\/g, "/");
+        const normalizedEverythingName = normalizeAppName(
+          everything.name || normalizedEverythingPath.split("/").pop() || ""
+        );
         const isInFilteredApps = filteredApps.some(app => {
           const normalizedAppPath = app.path.toLowerCase().replace(/\\/g, "/");
-          const normalizedEverythingPath = everything.path.toLowerCase().replace(/\\/g, "/");
           return normalizedAppPath === normalizedEverythingPath;
         });
         const isInFilteredFiles = filteredFiles.some(file => {
           const normalizedFilePath = file.path.toLowerCase().replace(/\\/g, "/");
-          const normalizedEverythingPath = everything.path.toLowerCase().replace(/\\/g, "/");
           return normalizedFilePath === normalizedEverythingPath;
         });
-        const shouldInclude = !isInFilteredApps && !isInFilteredFiles;
+        // 额外通过名称去重，避免同名的 exe 与 lnk 同时出现
+        const isDuplicateByName = normalizedAppNameSet.has(normalizedEverythingName);
+        const shouldInclude = !isInFilteredApps && !isInFilteredFiles && !isDuplicateByName;
         if (!shouldInclude) {
           duplicateFilteredCount++;
+        }
+        if (shouldInclude) {
+          normalizedAppNameSet.add(normalizedEverythingName);
         }
         return shouldInclude;
       })
@@ -1800,6 +1815,16 @@ export function LauncherWindow() {
             return normalizedAppPath === normalizedFilePath;
           });
         })
+        .filter((file) => {
+          // 同名去重：避免 file history 与 Everything/应用列表名称重复
+          const normalizedName = normalizeAppName(file.name);
+          if (normalizedAppNameSet.has(normalizedName)) {
+            duplicateFilteredCount++;
+            return false;
+          }
+          normalizedAppNameSet.add(normalizedName);
+          return true;
+        })
         .map((file): SearchResult => ({
           type: "app" as const,
           app: {
@@ -1859,6 +1884,15 @@ export function LauncherWindow() {
     // 优先保留历史文件结果（因为历史记录包含使用频率和最近使用时间，排序更准确）
     // 先收集历史文件结果的路径集合
     const historyFilePaths = new Set<string>();
+    const normalizeNameForResult = (result: SearchResult): string => {
+      const base =
+        result.displayName ||
+        result.path.split(/[\\/]/).pop() ||
+        result.path;
+      return normalizeAppName(base);
+    };
+    // 记录已保留的应用名，用于后续过滤同名的非应用结果（避免“同名文档”覆盖/混淆应用）
+    const seenAppNames = new Set<string>();
     for (const result of otherResults) {
       if (result.type === "file") {
         const normalizedPath = result.path.toLowerCase().replace(/\\/g, "/");
@@ -1885,6 +1919,11 @@ export function LauncherWindow() {
         const normalizedPath = result.path.toLowerCase().replace(/\\/g, "/");
         if (!addedHistoryPaths.has(normalizedPath)) {
           addedHistoryPaths.add(normalizedPath);
+          // 如果已存在同名应用，跳过非应用结果，避免同名文档/文件干扰
+          const normalizedName = normalizeNameForResult(result);
+          if (seenAppNames.has(normalizedName)) {
+            continue;
+          }
           deduplicatedResults.push(result);
         }
         // 如果路径已添加过，跳过（保留第一次出现的，通常使用频率更高）
@@ -1894,6 +1933,12 @@ export function LauncherWindow() {
       // 对于 Everything 类型，检查是否已在历史文件结果中
       if (result.type === "everything") {
         const normalizedPath = result.path.toLowerCase().replace(/\\/g, "/");
+        const normalizedName = normalizeNameForResult(result);
+        // 如果已有同名应用，跳过 Everything 非应用结果，避免“打开文件夹”指向文档
+        if (seenAppNames.has(normalizedName)) {
+          everythingFilteredByHistoryCount++; // 复用统计
+          continue;
+        }
         if (!historyFilePaths.has(normalizedPath)) {
           deduplicatedResults.push(result);
         } else {
@@ -1908,10 +1953,12 @@ export function LauncherWindow() {
         const normalizedPath = result.path.toLowerCase().replace(/\\/g, "/");
         const isInHistoryFilePaths = historyFilePaths.has(normalizedPath);
         const isInAddedAppPaths = addedAppPaths.has(normalizedPath);
+        const normalizedName = normalizeNameForResult(result);
         // 检查是否已在历史文件结果中，或者是否已经添加过（防止重复）
         // 注意：如果同一个路径在 otherResults 中出现多次（比如来自 filteredFiles 和 Everything），只保留第一个
         if (!isInHistoryFilePaths && !isInAddedAppPaths) {
           addedAppPaths.add(normalizedPath);
+          seenAppNames.add(normalizedName);
           deduplicatedResults.push(result);
         } else {
           if (isInHistoryFilePaths) {

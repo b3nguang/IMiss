@@ -3704,18 +3704,11 @@ pub fn reveal_in_folder(path: String) -> Result<(), String> {
                 return Err(format!("Path contains invalid characters: {}", normalized_path));
             }
             
-            // Use explorer /select to open folder and select file
-            // Windows explorer requires /select,<path> format (no space after comma)
-            // For paths with spaces, we need to quote the path part
-            // Format: /select,"C:\path with spaces\file.txt"
-            let explorer_arg = if normalized_path.contains(' ') {
-                format!("/select,\"{}\"", normalized_path)
-            } else {
-                format!("/select,{}", normalized_path)
-            };
-            
+            // 使用独立参数形式，避免不同 shell 对逗号/引号解析差异：
+            // explorer /select, "C:\path with spaces\file.txt"
+            let args = ["/select,", &normalized_path];
             Command::new("explorer")
-                .arg(&explorer_arg)
+                .args(&args)
                 .spawn()
                 .map_err(|e| format!("Failed to execute explorer command: {}", e))?;
         } else {
