@@ -616,29 +616,16 @@ pub mod windows {
     // Extract icon from UWP app (shell:AppsFolder path)
     // 使用 Windows API 直接提取图标，避免在约束语言模式下使用 COM 对象
     pub fn extract_uwp_app_icon_base64(app_path: &str) -> Option<String> {
-        // #region agent log
-        eprintln!("[UWP图标] 开始提取: app_path={}", app_path);
-        // #endregion
-        
         // Parse shell:AppsFolder\PackageFamilyName!ApplicationId format
         if !app_path.starts_with("shell:AppsFolder\\") {
-            // #region agent log
-            eprintln!("[UWP图标] 路径格式错误: app_path={}", app_path);
-            // #endregion
             return None;
         }
         
         // 使用纯 Rust 实现，调用 Native Windows API
         if let Some(icon) = extract_uwp_app_icon_base64_native(app_path) {
-            // #region agent log
-            eprintln!("[UWP图标] Native API 成功: app_path={}, icon_len={}", app_path, icon.len());
-            // #endregion
             return Some(icon);
         }
         
-        // #region agent log
-        eprintln!("[UWP图标] 提取失败，返回 None: app_path={}", app_path);
-        // #endregion
         None
     }
     
@@ -649,10 +636,6 @@ pub mod windows {
         if let Some(result) = extract_uwp_app_icon_via_image_factory(app_path) {
             return Some(result);
         }
-        
-        // #region agent log
-        eprintln!("[UWP图标Native] IShellItemImageFactory 失败，回退到 SHGetFileInfoW: app_path={}", app_path);
-        // #endregion
         
         // 回退到 SHGetFileInfoW 方法
         extract_uwp_app_icon_via_shgetfileinfo(app_path)
@@ -680,16 +663,11 @@ pub mod windows {
                     .collect();
                 let path_pcwstr = PCWSTR::from_raw(path_wide.as_ptr());
                 
-                // #region agent log
-                eprintln!("[UWP图标ImageFactory] SHCreateItemFromParsingName 调用: app_path={}", app_path);
-                // #endregion
-                
                 // 使用 SHCreateItemFromParsingName 创建 IShellItem
                 use ::windows::Win32::UI::Shell::IShellItem;
                 let shell_item: IShellItem = match SHCreateItemFromParsingName(path_pcwstr, None) {
                     Ok(item) => item,
-                    Err(e) => {
-                        eprintln!("[UWP图标ImageFactory] SHCreateItemFromParsingName 失败: app_path={}, error={:?}", app_path, e);
+                    Err(_) => {
                         return None;
                     }
                 };
@@ -698,8 +676,7 @@ pub mod windows {
                 use ::windows::core::Interface;
                 let image_factory: IShellItemImageFactory = match shell_item.cast() {
                     Ok(factory) => factory,
-                    Err(e) => {
-                        eprintln!("[UWP图标ImageFactory] QueryInterface IShellItemImageFactory 失败: app_path={}, error={:?}", app_path, e);
+                    Err(_) => {
                         return None;
                     }
                 };
@@ -715,18 +692,10 @@ pub mod windows {
                     SIIGBF(0x00000000u32 as i32), // 默认标志
                 ];
                 
-                for (idx, flags) in flags_list.iter().enumerate() {
-                    // #region agent log
-                    eprintln!("[UWP图标ImageFactory] GetImage 尝试 {}: app_path={}, size=32x32, flags={:?}", idx, app_path, flags);
-                    // #endregion
-                    
+                for (_, flags) in flags_list.iter().enumerate() {
                     // 调用 GetImage 获取 HBITMAP
                     match image_factory.GetImage(size, *flags) {
                         Ok(hbitmap) => {
-                            // #region agent log
-                            eprintln!("[UWP图标ImageFactory] GetImage 成功: app_path={}, hbitmap={:?}", app_path, hbitmap);
-                            // #endregion
-                            
                             // 将 HBITMAP 转换为 PNG
                             let hbitmap_value = hbitmap.0 as isize;
                             let png_result = bitmap_to_png(hbitmap_value);
@@ -735,17 +704,10 @@ pub mod windows {
                             let _ = DeleteObject(HGDIOBJ(hbitmap.0));
                             
                             if let Some(ref png_base64) = png_result {
-                                // #region agent log
-                                eprintln!("[UWP图标ImageFactory] bitmap_to_png 成功: app_path={}, base64_len={}", 
-                                    app_path, png_base64.len());
-                                // #endregion
                                 return Some(format!("data:image/png;base64,{}", png_base64));
                             }
                         },
-                        Err(e) => {
-                            // #region agent log
-                            eprintln!("[UWP图标ImageFactory] GetImage 失败 (尝试 {}): app_path={}, error={:?}", idx, app_path, e);
-                            // #endregion
+                        Err(_) => {
                             continue; // 尝试下一个标志
                         }
                     }

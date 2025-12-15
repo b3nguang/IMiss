@@ -830,10 +830,39 @@ pub async fn search_applications(
                     results_paths.len());
             }
             // #endregion
+            
+            // 先检查缓存中是否已有图标，避免重复提取
+            let paths_to_extract: Vec<String> = {
+                let cache_guard = cache_clone.lock().ok();
+                if let Some(guard) = cache_guard {
+                    if let Some(ref apps_arc) = *guard {
+                        // 过滤出缓存中确实没有图标的应用
+                        results_paths.iter()
+                            .filter(|path_str| {
+                                apps_arc.iter()
+                                    .find(|a| a.path == **path_str)
+                                    .map(|a| a.icon.is_none())
+                                    .unwrap_or(true) // 如果找不到应用，需要提取
+                            })
+                            .cloned()
+                            .collect()
+                    } else {
+                        results_paths
+                    }
+                } else {
+                    results_paths
+                }
+            };
+            
+            if paths_to_extract.is_empty() {
+                // 所有应用的图标都在缓存中，无需提取
+                return;
+            }
+            
             // 先提取所有图标（不持有锁），避免阻塞搜索操作
             let mut icon_updates: Vec<(String, String)> = Vec::new(); // (path, icon_data)
             
-            for path_str in results_paths {
+            for path_str in paths_to_extract {
                 let path_lower = path_str.to_lowercase();
                 let icon = if path_lower.starts_with("shell:appsfolder\\") {
                     // #region agent log
@@ -3514,8 +3543,26 @@ pub fn reveal_in_folder(path: String) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
-        // Check if the path is in the Recycle Bin
+        // Check if the path is a shell: protocol path (e.g., shell:AppsFolder\...)
         let path_str_lower = trimmed.to_lowercase();
+        if path_str_lower.starts_with("shell:appsfolder") {
+            // UWP apps don't have a traditional file system location
+            // They are packaged apps from the Microsoft Store
+            return Err("UWP 应用没有传统意义上的所在文件夹，因为它们是打包在 Microsoft Store 中的应用。".to_string());
+        }
+        
+        if path_str_lower.starts_with("shell:") {
+            // For other shell: protocol paths (like shell:RecycleBinFolder), 
+            // we can open them directly, but AppsFolder is special
+            // These paths cannot be parsed as regular file paths
+            Command::new("explorer")
+                .arg(trimmed)
+                .spawn()
+                .map_err(|e| format!("Failed to open shell path: {}", e))?;
+            return Ok(());
+        }
+        
+        // Check if the path is in the Recycle Bin
         let is_recycle_bin = path_str_lower.contains("$recycle.bin");
         
         if is_recycle_bin {
@@ -3577,16 +3624,52 @@ pub fn reveal_in_folder(path: String) -> Result<(), String> {
         // If it's a file (exists and is file) or looks like a file path, use /select
         // This ensures we open the correct folder even if the file doesn't exist
         if (absolute_path.exists() && absolute_path.is_file()) || is_likely_file {
-            // Use the original trimmed path, normalized
-            let mut path_str = file_path_str.clone();
+            // Get the absolute path for the file to select
+            let path_to_select = if absolute_path.exists() {
+                // If path exists, use canonicalized path
+                absolute_path
+                    .canonicalize()
+                    .map_err(|e| format!("Failed to canonicalize path: {}", e))?
+                    .to_string_lossy()
+                    .replace("/", "\\")
+            } else {
+                // If path doesn't exist, construct absolute path from components
+                let abs_path = if path_buf.is_absolute() {
+                    path_buf.clone()
+                } else {
+                    std::env::current_dir()
+                        .map_err(|e| format!("Failed to get current directory: {}", e))?
+                        .join(&path_buf)
+                };
+                abs_path.to_string_lossy().replace("/", "\\")
+            };
             
-            // Remove leading/trailing whitespace and normalize
-            path_str = path_str.trim().to_string();
+            // Remove \\?\ prefix if present (explorer doesn't handle it well with /select)
+            let mut normalized_path = path_to_select;
+            if normalized_path.starts_with("\\\\?\\") {
+                normalized_path = normalized_path[4..].to_string();
+            }
+            
+            // Remove trailing backslash if present
+            normalized_path = normalized_path.trim_end_matches('\\').to_string();
+            
+            // Validate path doesn't contain invalid characters for Windows
+            // Windows invalid characters: < > : " | ? * and control characters
+            let invalid_chars = ['<', '>', ':', '"', '|', '?', '*'];
+            if normalized_path.chars().any(|c| invalid_chars.contains(&c)) {
+                return Err(format!("Path contains invalid characters: {}", normalized_path));
+            }
             
             // Use explorer /select to open folder and select file
             // Windows explorer requires /select,<path> format (no space after comma)
-            // We combine them into one argument, and Rust's Command will handle path quoting automatically
-            let explorer_arg = format!("/select,{}", path_str);
+            // For paths with spaces, we need to quote the path part
+            // Format: /select,"C:\path with spaces\file.txt"
+            let explorer_arg = if normalized_path.contains(' ') {
+                format!("/select,\"{}\"", normalized_path)
+            } else {
+                format!("/select,{}", normalized_path)
+            };
+            
             Command::new("explorer")
                 .arg(&explorer_arg)
                 .spawn()

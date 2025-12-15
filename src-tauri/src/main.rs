@@ -268,7 +268,6 @@ fn main() {
             let app_data_dir = get_app_data_dir(app.handle())?;
 
             let app_data_dir_clone1 = app_data_dir.clone();
-            let app_data_dir_clone3 = app_data_dir.clone();
 
             let _tray = tray_builder
                 .on_tray_icon_event(move |tray, event| {
@@ -430,9 +429,6 @@ fn main() {
                 let app_handle_plugin = app.handle().clone();
                 let (tx_plugin, rx_plugin) = mpsc::channel();
                 
-                // 在启动监听器之前先克隆 sender，用于注册快捷键
-                let tx_plugin_reg = tx_plugin.clone();
-                
                 // 启动多快捷键监听器
                 match hotkey_handler::windows::start_multi_hotkey_listener(tx_plugin) {
                     Ok(_handle) => {
@@ -478,7 +474,6 @@ fn main() {
                             if let Ok(settings) = settings::load_settings(&app_data_dir_plugin) {
                                 // 注册插件快捷键
                                 let plugin_hotkeys = settings.plugin_hotkeys.clone();
-                                let plugin_hotkey_count = plugin_hotkeys.len();
                                 if !plugin_hotkeys.is_empty() {
                                     if let Err(e) = hotkey_handler::windows::update_plugin_hotkeys(plugin_hotkeys) {
                                         eprintln!("[Main] Failed to register plugin hotkeys: {}", e);

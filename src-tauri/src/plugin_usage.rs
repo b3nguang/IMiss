@@ -64,7 +64,7 @@ fn get_plugin_usage_by_id(
 }
 
 pub fn list_plugin_usage(app_data_dir: &Path) -> Result<Vec<PluginUsage>, String> {
-    let mut conn = db::get_connection(app_data_dir)?;
+    let conn = db::get_connection(app_data_dir)?;
     let mut stmt = conn
         .prepare(
             r#"

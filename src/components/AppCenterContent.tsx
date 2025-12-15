@@ -113,7 +113,6 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
   const [deleteBackupConfirmPath, setDeleteBackupConfirmPath] = useState<string | null>(null);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [pendingDeleteCount, setPendingDeleteCount] = useState(0);
-  const [debuggingAppName, setDebuggingAppName] = useState<string | null>(null);
   
   // 应用快捷键相关状态
   const [appHotkeys, setAppHotkeys] = useState<Record<string, { modifiers: string[]; key: string }>>({});
@@ -586,6 +585,8 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
       } else {
         // 普通扫描：等待结果
         const data = await tauriApi.scanApplications();
+        console.log("[应用结果列表] 加载完成，总数:", data.length);
+        console.log("[应用结果列表] 应用数据:", data);
         setAppIndexList(data);
         setAppIndexLoading(false);
         // 不再自动提取图标，避免打开列表时的延迟
@@ -607,27 +608,6 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
   const handleCloseAppIndexModal = () => {
     setIsAppIndexModalOpen(false);
     setAppIndexSearch("");
-  };
-
-  const handleDebugAppIcon = async (appName: string) => {
-    // 防止重复点击
-    if (debuggingAppName) {
-      return;
-    }
-    
-    try {
-      setDebuggingAppName(appName);
-      const result = await tauriApi.debugAppIcon(appName);
-      // 显示调试结果（可以使用 alert 或者更好的 UI）
-      console.log('=== 图标调试结果 ===');
-      console.log(result);
-      alert(result);
-    } catch (error: any) {
-      console.error('调试失败:', error);
-      alert(`调试失败: ${error?.message || error}`);
-    } finally {
-      setDebuggingAppName(null);
-    }
   };
 
   // 格式化快捷键显示
@@ -805,13 +785,19 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
   }, [recordingAppPath]);
 
   const filteredAppIndexList = useMemo(() => {
-    if (!appIndexSearch.trim()) return appIndexList;
+    if (!appIndexSearch.trim()) {
+      console.log("[应用结果列表] 无搜索条件，返回全部列表，数量:", appIndexList.length);
+      return appIndexList;
+    }
     const query = appIndexSearch.toLowerCase();
-    return appIndexList.filter(
+    const filtered = appIndexList.filter(
       (item) =>
         item.name.toLowerCase().includes(query) ||
         item.path.toLowerCase().includes(query)
     );
+    console.log("[应用结果列表] 筛选结果 - 搜索词:", appIndexSearch, "原始数量:", appIndexList.length, "筛选后数量:", filtered.length);
+    console.log("[应用结果列表] 筛选后的应用:", filtered);
+    return filtered;
   }, [appIndexList, appIndexSearch]);
 
   const filteredHistoryItems = useMemo(() => {
@@ -1046,6 +1032,8 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
       // 监听扫描完成事件
       unlistenComplete = await listen<{ apps: AppInfo[] }>("app-rescan-complete", (event) => {
         const { apps } = event.payload;
+        console.log("[应用结果列表] 重新扫描完成，总数:", apps.length);
+        console.log("[应用结果列表] 重新扫描后的应用数据:", apps);
         setAppIndexList(apps);
         setAppIndexLoading(false);
         setAppIndexError(null);
@@ -2218,19 +2206,6 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
                               className="px-2 py-1 text-xs rounded border border-gray-500 text-gray-700 hover:bg-gray-100 transition"
                             >
                               取消
-                            </button>
-                          )}
-                          {!item.icon && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDebugAppIcon(item.name);
-                              }}
-                              disabled={debuggingAppName !== null}
-                              className="opacity-0 group-hover:opacity-100 px-2 py-1 text-xs rounded border border-gray-300 text-gray-600 hover:bg-gray-100 transition disabled:opacity-50 disabled:cursor-not-allowed"
-                              title="调试图标提取"
-                            >
-                              {debuggingAppName === item.name ? "调试中..." : "调试图标"}
                             </button>
                           )}
                         </div>

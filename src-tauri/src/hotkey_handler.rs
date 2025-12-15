@@ -753,7 +753,7 @@ pub mod windows {
                     
                     if result == 0 {
                         use windows_sys::Win32::Foundation::GetLastError;
-                        let error_code = unsafe { GetLastError() };
+                        let error_code = GetLastError();
                         return Err(format!(
                             "发送热键更新消息失败 (错误代码: {})，请重启应用",
                             error_code

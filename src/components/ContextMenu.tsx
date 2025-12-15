@@ -6,8 +6,6 @@ interface ContextMenuProps {
   menu: { x: number; y: number; result: SearchResult } | null;
   onClose: () => void;
   onRevealInFolder: () => Promise<void>;
-  onDebugAppIcon: (appName: string) => Promise<void>;
-  onDebugFileIcon: (fileName: string, filePath: string) => Promise<void>;
   onEditMemo: () => void;
   onDeleteMemo: (memoId: string) => Promise<void>;
   onOpenUrl: (url: string) => Promise<void>;
@@ -24,8 +22,6 @@ export function ContextMenu({
   menu,
   onClose,
   onRevealInFolder,
-  onDebugAppIcon,
-  onDebugFileIcon,
   onEditMemo,
   onDeleteMemo,
   onOpenUrl,
@@ -70,13 +66,18 @@ export function ContextMenu({
     menu.result.type === "file" ||
     menu.result.type === "everything" ||
     menu.result.type === "app";
+  
+  // 检查是否是 UWP 应用（shell:AppsFolder 路径），UWP 应用没有传统意义上的所在文件夹
+  const isUwpApp = menu.result.path.toLowerCase().startsWith("shell:appsfolder");
+  const canRevealInFolder = hasFileMenu && !isUwpApp;
+  
   const hasMemoMenu = menu.result.type === "memo" && menu.result.memo;
   const hasUrlMenu = menu.result.type === "url" && menu.result.url;
   const hasJsonMenu = menu.result.type === "json_formatter" && menu.result.jsonContent;
   const hasAiMenu = menu.result.type === "ai" && menu.result.aiAnswer;
 
   // 如果没有菜单项，不显示菜单
-  if (!hasFileMenu && !hasMemoMenu && !hasUrlMenu && !hasJsonMenu && !hasAiMenu) {
+  if (!canRevealInFolder && !hasMemoMenu && !hasUrlMenu && !hasJsonMenu && !hasAiMenu) {
     return null;
   }
 
@@ -110,7 +111,7 @@ export function ContextMenu({
         top: `${menu.y}px`,
       }}
     >
-      {hasFileMenu && (
+      {canRevealInFolder && (
         <>
           <button
             onClick={(e) => {
@@ -126,74 +127,6 @@ export function ContextMenu({
           >
             打开所在文件夹
           </button>
-          {/* 为应用类型显示调试图标按钮 */}
-          {menu.result.type === "app" && menu.result.app && (
-            <button
-              onClick={async (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                onClose();
-                const app = menu.result.app!;
-                const hasIcon = app.icon && app.icon.trim() !== "";
-                await onDebugAppIcon(app.name);
-                // 显示详细信息
-                try {
-                  const result = await tauriApi.debugAppIcon(app.name);
-                  console.log("=== 图标调试结果 ===");
-                  console.log("应用名称:", app.name);
-                  console.log("应用路径:", app.path);
-                  console.log("当前图标状态:", hasIcon ? "有图标" : "无图标");
-                  console.log("图标数据长度:", app.icon?.length || 0);
-                  console.log("调试信息:\n", result);
-                  alert(
-                    `应用: ${app.name}\n路径: ${app.path}\n图标状态: ${hasIcon ? "有图标" : "无图标"}\n\n${result}`
-                  );
-                } catch (error: any) {
-                  console.error("调试失败:", error);
-                  alert(`调试失败: ${error?.message || error}`);
-                }
-              }}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-              }}
-              className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 transition-colors border-t border-gray-100"
-            >
-              调试图标提取
-            </button>
-          )}
-          {/* 为文件类型（.lnk 或 .exe）也显示调试图标按钮 */}
-          {menu.result.type === "file" && menu.result.file && (() => {
-            const filePath = menu.result.file.path || "";
-            const isLnkOrExe =
-              filePath.toLowerCase().endsWith(".lnk") || filePath.toLowerCase().endsWith(".exe");
-            const fileName = menu.result.file.name || "";
-            return isLnkOrExe ? (
-              <button
-                onClick={async (e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onClose();
-                  try {
-                    await onDebugFileIcon(
-                      fileName.replace(/\.(lnk|exe)$/i, ""),
-                      filePath
-                    );
-                  } catch (error: any) {
-                    console.error("调试失败:", error);
-                    alert(`调试失败: ${error?.message || error}`);
-                  }
-                }}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                }}
-                className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 transition-colors border-t border-gray-100"
-              >
-                调试图标提取
-              </button>
-            ) : null;
-          })()}
         </>
       )}
       {hasMemoMenu && (

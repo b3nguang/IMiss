@@ -8,7 +8,6 @@ import type { AppInfo, FileHistoryItem, EverythingResult, MemoItem, PluginContex
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { plugins, searchPlugins, executePlugin } from "../plugins";
 import { AppCenterContent } from "./AppCenterContent";
 import { MemoModal } from "./MemoModal";
@@ -3260,7 +3259,10 @@ export function LauncherWindow() {
   // 前端搜索应用（基于缓存的应用列表）
   const searchAppsFrontend = (query: string, apps: AppInfo[]): AppInfo[] => {
     if (!query || query.trim() === "") {
-      return apps.slice(0, 10);
+      const defaultResults = apps.slice(0, 10);
+      console.log("[启动器搜索] 应用结果列表 - 无搜索条件，返回前10个应用，数量:", defaultResults.length);
+      console.log("[启动器搜索] 返回的应用:", defaultResults);
+      return defaultResults;
     }
 
     const queryLower = query.trim().toLowerCase();
@@ -3349,6 +3351,8 @@ export function LauncherWindow() {
     // 如果有完全匹配且提前退出，直接返回
     if (perfectMatches >= MAX_PERFECT_MATCHES && results.length <= MAX_PERFECT_MATCHES) {
       const finalResults = results.map((r) => apps[r.index]);
+      console.log("[启动器搜索] 应用结果列表 - 搜索词:", query, "原始数量:", apps.length, "筛选后数量:", finalResults.length);
+      console.log("[启动器搜索] 筛选后的应用:", finalResults);
       return finalResults;
     }
 
@@ -3357,6 +3361,8 @@ export function LauncherWindow() {
     
     // 限制结果数量并返回
     const finalResults = results.slice(0, MAX_RESULTS).map((r) => apps[r.index]);
+    console.log("[启动器搜索] 应用结果列表 - 搜索词:", query, "原始数量:", apps.length, "筛选后数量:", finalResults.length);
+    console.log("[启动器搜索] 筛选后的应用:", finalResults);
     return finalResults;
   };
 
@@ -3393,9 +3399,11 @@ export function LauncherWindow() {
     // 使用普通状态更新，React 18 会自动优化渲染性能
     // 移除 flushSync，因为它会在某些情况下导致同步渲染阻塞主线程
     if (shouldUpdate) {
+      console.log("[启动器搜索] 更新应用结果列表 - 搜索词:", searchQuery, "结果数量:", results.length);
       setFilteredApps(results);
     } else {
       // 查询在搜索过程中已改变，忽略结果
+      console.log("[启动器搜索] 查询已改变，忽略结果 - 当前查询:", currentQueryTrimmed, "搜索查询:", searchQueryTrimmed);
       setFilteredApps([]);
     }
   };
@@ -4434,14 +4442,14 @@ export function LauncherWindow() {
       const target = contextMenu.result;
       const path = target.path;
       console.log("Revealing in folder:", path);
-      // 为应用、文件和 Everything 结果都提供“打开所在文件夹”
+      // 为应用、文件和 Everything 结果都提供"打开所在文件夹"
       if (
         target.type === "file" ||
         target.type === "everything" ||
         target.type === "app"
       ) {
-        // Use Tauri opener plugin to reveal file in folder
-        await revealItemInDir(path);
+        // Use custom reveal_in_folder command to handle shell: protocol paths
+        await tauriApi.revealInFolder(path);
         console.log("Reveal in folder called successfully");
       }
       setContextMenu(null);
@@ -5940,35 +5948,6 @@ export function LauncherWindow() {
         menu={contextMenu}
         onClose={() => setContextMenu(null)}
         onRevealInFolder={handleRevealInFolder}
-        onDebugAppIcon={async (appName: string) => {
-          try {
-            const result = await tauriApi.debugAppIcon(appName);
-            console.log("=== 图标调试结果 ===");
-            console.log("应用名称:", appName);
-            console.log("调试信息:\n", result);
-            alert(`应用: ${appName}\n\n${result}`);
-            // 尝试重新加载应用列表以获取可能的图标更新
-            await searchApplications(query);
-          } catch (error: any) {
-            console.error("调试失败:", error);
-            alert(`调试失败: ${error?.message || error}`);
-          }
-        }}
-        onDebugFileIcon={async (fileName: string, filePath: string) => {
-          try {
-            const result = await tauriApi.debugAppIcon(fileName);
-            console.log("=== 图标调试结果（文件类型）===");
-            console.log("文件名称:", fileName);
-            console.log("文件路径:", filePath);
-            console.log("调试信息:\n", result);
-            alert(`文件: ${fileName}\n路径: ${filePath}\n\n${result}`);
-            // 尝试重新搜索
-            await searchApplications(query);
-          } catch (error: any) {
-            console.error("调试失败:", error);
-            alert(`调试失败: ${error?.message || error}`);
-          }
-        }}
         onEditMemo={() => {
           if (!contextMenu?.result.memo) return;
           setSelectedMemo(contextMenu.result.memo);
