@@ -5,6 +5,7 @@ import { tauriApi } from "../api/tauri";
 import { listen, emit } from "@tauri-apps/api/event";
 import { OllamaSettingsPage, SystemSettingsPage, AboutSettingsPage } from "./SettingsPages";
 import { fetchUsersCount } from "../api/events";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 // 菜单分类类型
 type MenuCategory = "plugins" | "settings" | "about" | "index" | "statistics";
@@ -813,22 +814,34 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
     };
   }, [recordingAppPath]);
 
-  // ESC 键处理（取消应用快捷键录制）
+  // ESC 键处理（取消应用快捷键录制 或 关闭应用索引模态框）
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && recordingAppPath) {
-        setRecordingAppPath(null);
-        appRecordingRef.current = false;
-        setAppRecordingKeys([]);
-        appLastModifierRef.current = null;
-        appLastModifierTimeRef.current = 0;
-        appIsCompletingRef.current = false;
-        appFinalKeysRef.current = null;
+      if (e.key === "Escape") {
+        // 优先处理快捷键录制
+        if (recordingAppPath) {
+          e.preventDefault();
+          e.stopPropagation();
+          setRecordingAppPath(null);
+          appRecordingRef.current = false;
+          setAppRecordingKeys([]);
+          appLastModifierRef.current = null;
+          appLastModifierTimeRef.current = 0;
+          appIsCompletingRef.current = false;
+          appFinalKeysRef.current = null;
+        }
+        // 如果应用索引模态框打开，关闭它（阻止事件冒泡，避免关闭应用中心窗口）
+        else if (isAppIndexModalOpen) {
+          e.preventDefault();
+          e.stopPropagation();
+          handleCloseAppIndexModal();
+        }
       }
     };
-    window.addEventListener("keydown", handleEscape);
-    return () => window.removeEventListener("keydown", handleEscape);
-  }, [recordingAppPath]);
+    // 使用 capture 阶段捕获事件，确保在父组件之前处理
+    window.addEventListener("keydown", handleEscape, true);
+    return () => window.removeEventListener("keydown", handleEscape, true);
+  }, [recordingAppPath, isAppIndexModalOpen]);
 
   const filteredAppIndexList = useMemo(() => {
     if (!appIndexSearch.trim()) {
@@ -2038,82 +2051,34 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
         </div>
       </div>
 
-      {isDeleteConfirmOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-gray-200 p-5">
-            <div className="text-lg font-semibold text-gray-900 mb-2">确认删除</div>
-            <div className="text-sm text-gray-700 mb-4">
-              确认删除当前筛选的 {pendingDeleteCount} 条记录？该操作不可恢复。
-            </div>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={handleCancelDelete}
-                className="px-3 py-2 text-sm rounded-lg bg-white border border-gray-200 hover:border-gray-300 text-gray-700"
-              >
-                取消
-              </button>
-              <button
-                onClick={handleConfirmDelete}
-                className="px-3 py-2 text-sm rounded-lg bg-red-50 text-red-700 border border-red-200 hover:border-red-300"
-              >
-                确认删除
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        isOpen={isDeleteConfirmOpen}
+        title="确认删除"
+        message={`确认删除当前筛选的 ${pendingDeleteCount} 条记录？该操作不可恢复。`}
+        confirmText="确认删除"
+        onConfirm={handleConfirmDelete}
+        onCancel={handleCancelDelete}
+      />
 
-      {restoreConfirmPath && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-gray-200 p-5">
-            <div className="text-lg font-semibold text-gray-900 mb-2">确认还原</div>
-            <div className="text-sm text-gray-700 mb-4 space-y-2">
-              <div>将用此备份覆盖当前数据库，操作不可撤销。</div>
-              <div className="text-xs text-gray-500 break-all">{restoreConfirmPath}</div>
-            </div>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={handleCancelRestore}
-                className="px-3 py-2 text-sm rounded-lg bg-white border border-gray-200 hover:border-gray-300 text-gray-700"
-              >
-                取消
-              </button>
-              <button
-                onClick={handleConfirmRestore}
-                className="px-3 py-2 text-sm rounded-lg bg-red-50 text-red-700 border border-red-200 hover:border-red-300"
-              >
-                确认还原
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        isOpen={!!restoreConfirmPath}
+        title="确认还原"
+        message="将用此备份覆盖当前数据库，操作不可撤销。"
+        detail={restoreConfirmPath || undefined}
+        confirmText="确认还原"
+        onConfirm={handleConfirmRestore}
+        onCancel={handleCancelRestore}
+      />
 
-      {deleteBackupConfirmPath && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-gray-200 p-5">
-            <div className="text-lg font-semibold text-gray-900 mb-2">确认删除备份</div>
-            <div className="text-sm text-gray-700 mb-4 space-y-2">
-              <div>删除后无法恢复此备份文件，确定继续吗？</div>
-              <div className="text-xs text-gray-500 break-all">{deleteBackupConfirmPath}</div>
-            </div>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={handleCancelDeleteBackup}
-                className="px-3 py-2 text-sm rounded-lg bg-white border border-gray-200 hover:border-gray-300 text-gray-700"
-              >
-                取消
-              </button>
-              <button
-                onClick={handleConfirmDeleteBackup}
-                className="px-3 py-2 text-sm rounded-lg bg-red-50 text-red-700 border border-red-200 hover:border-red-300"
-              >
-                确认删除
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        isOpen={!!deleteBackupConfirmPath}
+        title="确认删除备份"
+        message="删除后无法恢复此备份文件，确定继续吗？"
+        detail={deleteBackupConfirmPath || undefined}
+        confirmText="确认删除"
+        onConfirm={handleConfirmDeleteBackup}
+        onCancel={handleCancelDeleteBackup}
+      />
 
       {isAppIndexModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
