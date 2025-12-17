@@ -4479,7 +4479,7 @@ export function LauncherWindow() {
     }
   }, []);
 
-  const handleLaunch = async (result: SearchResult) => {
+  const handleLaunch = useCallback(async (result: SearchResult) => {
     try {
       // Record open history for all types
       try {
@@ -4739,79 +4739,24 @@ export function LauncherWindow() {
         }
       } else if (result.type === "file" && result.file) {
         try {
+          // launchFile 内部已经会调用 add_file_path 更新使用次数，所以这里不需要再手动更新
+          // 只需要刷新缓存以同步后端更新后的数据
           await tauriApi.launchFile(result.file.path);
           
-          // 立即更新前端文件历史缓存（乐观更新）
-          // 使用与后端一致的路径规范化：去掉末尾斜杠，保持原始格式
-          const normalizePathForMatch = (path: string) => {
-            return path.trim().replace(/[\\/]+$/, '');
-          };
-          const normalizedPath = normalizePathForMatch(result.file.path);
+          console.log(`[历史记录使用次数] ========== 文件打开 ==========`);
+          console.log(`[历史记录使用次数] 路径: ${result.file.path}`);
+          console.log(`[历史记录使用次数] 说明: launchFile 已自动更新后端使用次数，现在刷新前端缓存`);
           
-          // 使用规范化路径进行匹配（不区分大小写，统一处理反斜杠/正斜杠）
-          const existingItem = allFileHistoryCacheRef.current.find(item => {
-            const itemNormalized = normalizePathForMatch(item.path);
-            // Windows 路径不区分大小写，统一转换为小写比较
-            // 同时统一处理反斜杠和正斜杠
-            const path1 = itemNormalized.toLowerCase().replace(/\\/g, '/');
-            const path2 = normalizedPath.toLowerCase().replace(/\\/g, '/');
-            return path1 === path2;
-          });
-          
-          if (existingItem) {
-            // 更新现有项的 last_used 时间和使用次数
-            const oldUseCount = existingItem.use_count;
-            const oldLastUsed = existingItem.last_used;
-            existingItem.last_used = timestampToUpdate;
-            existingItem.use_count += 1;
-            
-            console.log(`[历史记录使用次数] ========== 文件打开 ==========`);
-            console.log(`[历史记录使用次数] 路径: ${result.file.path}`);
-            console.log(`[历史记录使用次数] 规范化路径: ${normalizedPath}`);
-            console.log(`[历史记录使用次数] 文件名称: ${result.file.name}`);
-            console.log(`[历史记录使用次数] 是否为文件夹: ${result.file.is_folder ?? '未知'}`);
-            console.log(`[历史记录使用次数] 更新前 - 使用次数: ${oldUseCount}, 最后使用时间: ${oldLastUsed > 0 ? new Date(oldLastUsed * 1000).toLocaleString() : '无'}`);
-            console.log(`[历史记录使用次数] 更新后 - 使用次数: ${existingItem.use_count}, 最后使用时间: ${new Date(timestampToUpdate * 1000).toLocaleString()}`);
-            console.log(`[历史记录使用次数] filteredFiles 更新前数量: ${filteredFiles.length}`);
-            
-            // 立即更新 filteredFiles 状态，使UI显示最新的使用次数
-            setFilteredFiles(prevFiles => {
-              const updatedFiles = prevFiles.map(file => {
-                const fileNormalized = normalizePathForMatch(file.path);
-                const filePath1 = fileNormalized.toLowerCase().replace(/\\/g, '/');
-                const filePath2 = normalizedPath.toLowerCase().replace(/\\/g, '/');
-                if (filePath1 === filePath2) {
-                  console.log(`[历史记录使用次数] filteredFiles 中找到匹配项，更新使用次数: ${file.use_count} -> ${file.use_count + 1}`);
-                  return {
-                    ...file,
-                    last_used: timestampToUpdate,
-                    use_count: file.use_count + 1,
-                  };
-                }
-                return file;
-              });
-              console.log(`[历史记录使用次数] filteredFiles 更新后数量: ${updatedFiles.length}`);
-              return updatedFiles;
-            });
-            
-            console.log(`[历史记录使用次数] 缓存项总数: ${allFileHistoryCacheRef.current.length}`);
-            console.log(`[历史记录使用次数] ====================================`);
-          } else {
-            console.warn(`[文件打开] ⚠ 未找到缓存项: ${result.file.path} (规范化后: ${normalizedPath})`);
-            // 如果缓存中没有，说明可能是新文件，刷新缓存
-            void refreshFileHistoryCache();
-          }
-          
-          // 异步更新后端数据库（如果文件存在）
-          const filePath = result.file.path;
-          void tauriApi.addFileToHistory(filePath)
+          // 刷新文件历史缓存以同步后端更新后的数据（包括使用次数）
+          void refreshFileHistoryCache()
             .then(() => {
-              // 刷新文件历史缓存以确保与数据库同步（作为后备）
-              void refreshFileHistoryCache();
+              // 如果当前有查询，重新搜索以更新结果列表
+              if (query.trim()) {
+                void searchFileHistory(query);
+              }
             })
             .catch((error) => {
-              // 如果路径不存在或其他错误，记录警告（不影响文件打开）
-              console.warn(`[文件打开] ✗ 更新 file_history 失败: ${filePath}`, error);
+              console.warn(`[文件打开] ✗ 刷新 file_history 缓存失败: ${result.file?.path || '未知路径'}`, error);
             });
         } catch (fileError: any) {
           const errorMsg = fileError?.message || fileError?.toString() || "";
@@ -5002,7 +4947,7 @@ export function LauncherWindow() {
         setErrorMessage(errorMsg);
       }
     }
-  };
+  }, [query, refreshFileHistoryCache, searchFileHistory, hideLauncherAndResetState, setOpenHistory, setErrorMessage, errorMessage, setQuery, setSelectedIndex, setContextMenu, executePlugin, filteredFiles, allFileHistoryCacheRef, tauriApi]);
 
   const handleContextMenu = useCallback((e: React.MouseEvent, result: SearchResult) => {
     e.preventDefault();
@@ -6218,20 +6163,26 @@ export function LauncherWindow() {
                           dangerouslySetInnerHTML={{ __html: highlightText(result.plugin.description, query) }}
                         />
                       )}
-                      {result.type === "file" && result.file && (
-                        <div
-                          className={`text-xs mt-0.5 ${theme.usageText(isSelected)}`}
-                        >
-                          使用 {result.file.use_count} 次
-                          {(() => {
-                            // 获取最近使用时间（优先使用 openHistory 最新数据，否则使用 file.last_used）
-                            const lastUsed = openHistory[result.path] || result.file?.last_used || 0;
-                            if (!lastUsed || lastUsed === 0) return null;
-                            
-                            return <span className="ml-2">· {formatLastUsedTime(lastUsed)}</span>;
-                          })()}
-                        </div>
-                      )}
+                      {result.type === "file" && result.file && (() => {
+                        // 获取最近使用时间（优先使用 openHistory 最新数据，否则使用 file.last_used）
+                        const lastUsed = openHistory[result.path] || result.file?.last_used || 0;
+                        const useCount = result.file.use_count || 0;
+                        
+                        // 只有在有使用记录（使用次数 > 0 或最后使用时间 > 0）时才显示
+                        if (useCount === 0 && lastUsed === 0) {
+                          return null;
+                        }
+                        
+                        return (
+                          <div
+                            className={`text-xs mt-0.5 ${theme.usageText(isSelected)}`}
+                          >
+                            {useCount > 0 && `使用 ${useCount} 次`}
+                            {useCount > 0 && lastUsed > 0 && <span className="mx-1">·</span>}
+                            {lastUsed > 0 && <span>{formatLastUsedTime(lastUsed)}</span>}
+                          </div>
+                        );
+                      })()}
                       {/* 粘贴图片的保存选项 */}
                       {result.type === "file" && result.path === pastedImagePath && (
                         <div 
