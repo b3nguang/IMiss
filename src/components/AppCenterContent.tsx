@@ -100,6 +100,7 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [historyStartDate, setHistoryStartDate] = useState<string>("");
   const [historyEndDate, setHistoryEndDate] = useState<string>("");
+  const [historyDaysAgo, setHistoryDaysAgo] = useState<string>("");
   const [isDeletingHistory, setIsDeletingHistory] = useState(false);
   const [historyMessage, setHistoryMessage] = useState<string | null>(null);
   const [isBackingUpDb, setIsBackingUpDb] = useState(false);
@@ -861,6 +862,25 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
     console.log("[应用结果列表] 筛选后的应用:", filtered);
     return filtered;
   }, [appIndexList, appIndexSearch]);
+
+  const handleQueryDaysAgo = () => {
+    const days = parseInt(historyDaysAgo, 10);
+    if (isNaN(days) || days < 0) {
+      setHistoryMessage("请输入有效的天数（大于等于0）");
+      setTimeout(() => setHistoryMessage(null), 3000);
+      return;
+    }
+    
+    // 计算n天前的日期（作为结束日期，查询n天前及更早的所有数据）
+    const targetDate = new Date();
+    targetDate.setDate(targetDate.getDate() - days);
+    const dateStr = targetDate.toISOString().split('T')[0];
+    
+    // 开始日期不设置（或设置为空），结束日期设置为n天前
+    // 这样会查询n天前及更早的所有历史数据
+    setHistoryStartDate("");
+    setHistoryEndDate(dateStr);
+  };
 
   const filteredHistoryItems = useMemo(() => {
     const { start, end } = parseDateRangeToTs(historyStartDate, historyEndDate);
@@ -1671,6 +1691,28 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
                       >
                         {isLoadingHistory ? "加载中..." : "刷新文件历史"}
                       </button>
+                      <div className="flex items-center gap-1 border border-gray-200 rounded-lg px-2 py-1">
+                        <input
+                          type="number"
+                          value={historyDaysAgo}
+                          onChange={(e) => setHistoryDaysAgo(e.target.value)}
+                          placeholder="天数"
+                          min="0"
+                          className="w-16 px-1 py-0.5 text-xs border-0 focus:outline-none focus:ring-0"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              handleQueryDaysAgo();
+                            }
+                          }}
+                        />
+                        <span className="text-xs text-gray-500">天前</span>
+                        <button
+                          onClick={handleQueryDaysAgo}
+                          className="px-2 py-0.5 text-xs rounded bg-blue-50 text-blue-700 hover:bg-blue-100 transition"
+                        >
+                          查询
+                        </button>
+                      </div>
                       <input
                         type="date"
                         value={historyStartDate}
