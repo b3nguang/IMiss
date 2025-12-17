@@ -50,6 +50,7 @@ export function FileHistoryPanel({ indexStatus, skeuoSurface = "bg-white rounded
   const [historyStartDate, setHistoryStartDate] = useState<string>("");
   const [historyEndDate, setHistoryEndDate] = useState<string>("");
   const [historyDaysAgo, setHistoryDaysAgo] = useState<string>("");
+  const [searchQuery, setSearchQuery] = useState<string>("");
   const [isDeletingHistory, setIsDeletingHistory] = useState(false);
   const [historyMessage, setHistoryMessage] = useState<string | null>(null);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
@@ -261,8 +262,16 @@ export function FileHistoryPanel({ indexStatus, skeuoSurface = "bg-white rounded
       });
     }
     const filtered = fileHistoryItems.filter((item) => {
+      // 日期过滤
       if (start && item.last_used < start) return false;
       if (end && item.last_used > end) return false;
+      
+      // 文件名搜索过滤
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        return item.name.toLowerCase().includes(query) || item.path.toLowerCase().includes(query);
+      }
+      
       return true;
     });
     if (start === start5_10Days && end === end5_10Days) {
@@ -277,7 +286,7 @@ export function FileHistoryPanel({ indexStatus, skeuoSurface = "bg-white rounded
       console.log('====================================');
     }
     return filtered;
-  }, [fileHistoryItems, historyStartDate, historyEndDate, getPeriodDateRange]);
+  }, [fileHistoryItems, historyStartDate, historyEndDate, getPeriodDateRange, searchQuery]);
 
   // 计算不同时间段的数据汇总（使用与查询完全相同的逻辑）
   const historySummary = useMemo(() => {
@@ -430,8 +439,8 @@ export function FileHistoryPanel({ indexStatus, skeuoSurface = "bg-white rounded
   }, [filteredHistoryItems, loadFileHistoryList, onRefresh]);
 
   const handleOpenDeleteConfirm = useCallback(() => {
-    if (!historyStartDate && !historyEndDate && !historyDaysAgo) {
-      setHistoryMessage("请先选择筛选条件");
+    if (!historyStartDate && !historyEndDate && !historyDaysAgo && !searchQuery) {
+      setHistoryMessage("请先选择筛选条件或输入搜索关键词");
       setTimeout(() => setHistoryMessage(null), 2000);
       return;
     }
@@ -443,7 +452,7 @@ export function FileHistoryPanel({ indexStatus, skeuoSurface = "bg-white rounded
     }
     setPendingDeleteCount(count);
     setIsDeleteConfirmOpen(true);
-  }, [historyStartDate, historyEndDate, historyDaysAgo, filteredHistoryItems]);
+  }, [historyStartDate, historyEndDate, historyDaysAgo, searchQuery, filteredHistoryItems]);
 
   const handleConfirmDelete = useCallback(async () => {
     setIsDeleteConfirmOpen(false);
@@ -519,6 +528,26 @@ export function FileHistoryPanel({ indexStatus, skeuoSurface = "bg-white rounded
           </div>
         )}
         <div className="mt-3 flex flex-wrap gap-2 items-center">
+          <div className="relative">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+              }}
+              placeholder="搜索文件名..."
+              className="px-2 py-1 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400 pl-7"
+            />
+            <span className="absolute left-2 top-1/2 transform -translate-y-1/2 text-xs text-gray-400">🔍</span>
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2 top-1/2 transform -translate-y-1/2 text-xs text-gray-400 hover:text-gray-600"
+              >
+                ✕
+              </button>
+            )}
+          </div>
           <div className="flex items-center gap-1 border border-gray-200 rounded-lg px-2 py-1">
             <input
               type="number"
@@ -554,12 +583,13 @@ export function FileHistoryPanel({ indexStatus, skeuoSurface = "bg-white rounded
             }}
             className="px-2 py-1 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-green-400"
           />
-          {(historyStartDate || historyEndDate || historyDaysAgo) && (
+          {(historyStartDate || historyEndDate || historyDaysAgo || searchQuery) && (
             <button
               onClick={() => {
                 setHistoryDaysAgo("");
                 setHistoryStartDate("");
                 setHistoryEndDate("");
+                setSearchQuery("");
               }}
               className="px-2 py-1 text-xs text-gray-600 hover:text-gray-800"
             >

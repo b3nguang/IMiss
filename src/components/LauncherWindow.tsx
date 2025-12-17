@@ -1697,6 +1697,30 @@ export function LauncherWindow() {
       fileHistoryMap.set(normalizedPath, file);
     });
     
+    // 注意：系统文件夹的使用次数主要从 filteredFiles 中获取（通过 fileHistoryMap）
+    // 如果 filteredFiles 中没有，说明该文件夹不在文件历史记录中，使用默认值 0 是合理的
+    // 不需要从 allFileHistoryCacheRef 中查找，因为：
+    // 1. allFileHistoryCacheRef 在组件后面定义，访问会有初始化顺序问题
+    // 2. filteredFiles 已经包含了搜索匹配的文件历史记录，如果系统文件夹在历史记录中且匹配搜索，应该已经在 filteredFiles 中
+    
+    // 调试日志：检查 filteredFiles 中的使用次数
+    if (query.trim() && filteredFiles.length > 0) {
+      console.log(`[使用次数来源] filteredFiles 数量: ${filteredFiles.length}`);
+      filteredFiles.slice(0, 5).forEach((file, idx) => {
+        console.log(`[使用次数来源] filteredFiles[${idx}]: 路径=${file.path}, 使用次数=${file.use_count}, 最后使用=${file.last_used > 0 ? new Date(file.last_used * 1000).toLocaleString() : '无'}`);
+      });
+    }
+    
+    // 调试日志：检查系统文件夹
+    if (query.trim() && systemFolders.length > 0) {
+      console.log(`[使用次数来源] systemFolders 数量: ${systemFolders.length}`);
+      systemFolders.forEach((folder) => {
+        const normalizedPath = folder.path.toLowerCase().replace(/\\/g, "/");
+        const fileHistory = fileHistoryMap.get(normalizedPath);
+        console.log(`[使用次数来源] systemFolders "${folder.name}": 路径=${folder.path}, 是否在fileHistoryMap=${!!fileHistory}, 使用次数=${fileHistory?.use_count ?? 0}`);
+      });
+    }
+    
     let otherResults: SearchResult[] = [
       // 如果有 AI 回答，将其添加到结果列表的最前面
       ...(aiAnswer ? [{
@@ -1726,18 +1750,34 @@ export function LauncherWindow() {
         path: "ms-settings:startupapps",
       }] : []),
       // 系统文件夹结果，优先显示
-      ...systemFolders.map((folder) => ({
-        type: "file" as const,
-        file: {
+      ...systemFolders.map((folder) => {
+        // 尝试从文件历史记录中查找对应的使用频率数据
+        const normalizedFolderPath = folder.path.toLowerCase().replace(/\\/g, "/");
+        const fileHistory = fileHistoryMap.get(normalizedFolderPath);
+        
+        // 如果找到文件历史记录，使用历史记录的数据；否则使用默认值
+        const fileData = fileHistory || {
           path: folder.path,
           name: folder.name,
           last_used: 0,
           use_count: 0,
           is_folder: folder.is_folder,
-        },
-        displayName: folder.name,
-        path: folder.path,
-      })),
+        };
+        
+        // 调试日志：检查系统文件夹的使用次数
+        if (query.trim() && fileHistory) {
+          console.log(`[使用次数来源] 系统文件夹"${folder.name}": 从文件历史记录获取, 使用次数=${fileHistory.use_count}, 最后使用=${fileHistory.last_used > 0 ? new Date(fileHistory.last_used * 1000).toLocaleString() : '无'}`);
+        } else if (query.trim()) {
+          console.log(`[使用次数来源] 系统文件夹"${folder.name}": 未找到文件历史记录, 使用默认值0`);
+        }
+        
+        return {
+          type: "file" as const,
+          file: fileData,
+          displayName: folder.name,
+          path: folder.path,
+        };
+      }),
       // 如果查询匹配设置关键词，优先显示 Windows 设置应用（通过提高其优先级实现）
       ...filteredApps.map((app) => {
         // 尝试从文件历史记录中查找对应的使用频率数据
@@ -1954,12 +1994,18 @@ export function LauncherWindow() {
           const pathLower = file.path.toLowerCase();
           return !pathLower.endsWith('.exe') && !pathLower.endsWith('.lnk');
         })
-        .map((file) => ({
-          type: "file" as const,
-          file,
-          displayName: file.name,
-          path: file.path,
-        })),
+        .map((file) => {
+          // 调试日志：检查构建结果时的使用次数
+          if (query.trim()) {
+            console.log(`[使用次数来源] 构建搜索结果: 路径=${file.path}, 使用次数=${file.use_count}, file对象引用=${file}`);
+          }
+          return {
+            type: "file" as const,
+            file,
+            displayName: file.name,
+            path: file.path,
+          };
+        }),
       ...filteredMemos.map((memo) => ({
         type: "memo" as const,
         memo,
