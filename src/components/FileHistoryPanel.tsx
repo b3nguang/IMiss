@@ -145,13 +145,24 @@ export function FileHistoryPanel({ indexStatus, skeuoSurface = "bg-white rounded
       case '5-10days': {
         const startDate = new Date(now);
         startDate.setDate(startDate.getDate() - 10);
+        startDate.setHours(0, 0, 0, 0);
         const endDate = new Date(now);
         endDate.setDate(endDate.getDate() - 5);
-        return {
+        endDate.setHours(23, 59, 59, 999);
+        const range = {
           startDate: startDate.toISOString().split('T')[0],
           endDate: endDate.toISOString().split('T')[0],
           daysAgo: "10",
         };
+        console.log('5-10天筛选日期范围:', {
+          开始日期: range.startDate,
+          结束日期: range.endDate,
+          开始时间: startDate.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }),
+          结束时间: endDate.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }),
+          开始时间戳: Math.floor(startDate.getTime() / 1000),
+          结束时间戳: Math.floor(endDate.getTime() / 1000),
+        });
+        return range;
       }
       case '10-30days': {
         const startDate = new Date(now);
@@ -179,19 +190,94 @@ export function FileHistoryPanel({ indexStatus, skeuoSurface = "bg-white rounded
   // 处理点击汇总统计的时间段，自动查询（清空天数输入框）
   const handleClickSummaryPeriod = useCallback((period: '5days' | '5-10days' | '10-30days' | '30days') => {
     const range = getPeriodDateRange(period);
+    if (period === '5-10days') {
+      // 计算实际的时间范围（包含小时、分钟、秒）
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - 10);
+      startDate.setHours(0, 0, 0, 0);
+      const endDate = new Date();
+      endDate.setDate(endDate.getDate() - 5);
+      endDate.setHours(23, 59, 59, 999);
+      const { start, end } = parseDateRangeToTs(range.startDate, range.endDate);
+      
+      // 使用与 historySummary 和 filteredHistoryItems 完全相同的计算逻辑（简单时间范围过滤）
+      // 这样按钮统计数量和列表筛选数量会完全一致
+      const { start: start5_10Days, end: end5_10Days } = parseDateRangeToTs(range.startDate, range.endDate);
+      
+      // 计算按钮上显示的数字（使用与列表筛选相同的简单时间范围过滤逻辑）
+      const buttonCount = fileHistoryItems.filter((item) => {
+        // 与 filteredHistoryItems 完全相同的逻辑
+        if (start5_10Days !== undefined && item.last_used < start5_10Days) return false;
+        if (end5_10Days !== undefined && item.last_used > end5_10Days) return false;
+        return true;
+      }).length;
+      
+      console.log('========== 点击5-10天按钮 ==========');
+      console.log('按钮信息:', {
+        按钮文字: '5-10天',
+        按钮显示数字: buttonCount,
+        说明: `按钮上显示的数字 ${buttonCount} 表示该时间段内的记录数量（排除已计入近5天的记录）`,
+      });
+      console.log('查询条件:', {
+        时间范围说明: '从10天前 00:00:00 到 5天前 23:59:59',
+        开始日期: range.startDate,
+        结束日期: range.endDate,
+        开始时间: startDate.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }),
+        结束时间: endDate.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }),
+        开始时间戳: start,
+        结束时间戳: end,
+      });
+      console.log('筛选条件（数字形式）:', {
+        条件: `last_used >= ${start} && last_used <= ${end}`,
+        条件说明: `last_used >= ${start} (${new Date(start! * 1000).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}) && last_used <= ${end} (${new Date(end! * 1000).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })})`,
+        说明: '使用简单时间范围过滤，与按钮统计逻辑一致，数量应完全匹配',
+      });
+      console.log('====================================');
+    }
     setHistoryDaysAgo(""); // 清空天数输入框
     setHistoryStartDate(range.startDate);
     setHistoryEndDate(range.endDate);
-  }, [getPeriodDateRange]);
+  }, [getPeriodDateRange, fileHistoryItems]);
 
   const filteredHistoryItems = useMemo(() => {
     const { start, end } = parseDateRangeToTs(historyStartDate, historyEndDate);
-    return fileHistoryItems.filter((item) => {
+    // 检查是否是5-10天的筛选范围
+    const range5_10Days = getPeriodDateRange('5-10days');
+    const { start: start5_10Days, end: end5_10Days } = parseDateRangeToTs(range5_10Days.startDate, range5_10Days.endDate);
+    if (start === start5_10Days && end === end5_10Days) {
+      console.log('========== 5-10天筛选执行 ==========');
+      console.log('筛选参数:', {
+        开始日期: historyStartDate,
+        结束日期: historyEndDate,
+        开始时间: start ? new Date(start * 1000).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '无',
+        结束时间: end ? new Date(end * 1000).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '无',
+        开始时间戳: start,
+        结束时间戳: end,
+        总记录数: fileHistoryItems.length,
+      });
+      console.log('查询条件（数字形式）:', {
+        条件: `last_used >= ${start} && last_used <= ${end}`,
+        条件说明: `筛选 last_used 时间戳在 [${start}, ${end}] 范围内的记录`,
+      });
+    }
+    const filtered = fileHistoryItems.filter((item) => {
       if (start && item.last_used < start) return false;
       if (end && item.last_used > end) return false;
       return true;
     });
-  }, [fileHistoryItems, historyStartDate, historyEndDate]);
+    if (start === start5_10Days && end === end5_10Days) {
+      console.log('5-10天筛选结果:', {
+        筛选前记录数: fileHistoryItems.length,
+        筛选后记录数: filtered.length,
+        查询条件: start !== undefined && end !== undefined
+          ? `last_used >= ${start} (${new Date(start * 1000).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}) && last_used <= ${end} (${new Date(end * 1000).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })})`
+          : '无效的时间范围',
+        条件说明: `筛选条件：last_used 时间戳 >= ${start} 且 <= ${end}`,
+      });
+      console.log('====================================');
+    }
+    return filtered;
+  }, [fileHistoryItems, historyStartDate, historyEndDate, getPeriodDateRange]);
 
   // 计算不同时间段的数据汇总（使用与查询完全相同的逻辑）
   const historySummary = useMemo(() => {
@@ -207,42 +293,98 @@ export function FileHistoryPanel({ indexStatus, skeuoSurface = "bg-white rounded
     const { start: start10_30Days, end: end10_30Days } = parseDateRangeToTs(range10_30Days.startDate, range10_30Days.endDate);
     const { end: end30Days } = parseDateRangeToTs(range30Days.startDate, range30Days.endDate);
 
+    // 打印 5-10天 的计算参数
+    console.log('========== historySummary.tenDaysAgo 计算开始 ==========');
+    console.log('5-10天计算参数:', {
+      日期范围: {
+        开始日期: range5_10Days.startDate,
+        结束日期: range5_10Days.endDate,
+      },
+      时间戳范围: {
+        开始时间戳: start5_10Days,
+        结束时间戳: end5_10Days,
+        开始时间: start5_10Days ? new Date(start5_10Days * 1000).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '无',
+        结束时间: end5_10Days ? new Date(end5_10Days * 1000).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : '无',
+      },
+      筛选条件: `last_used >= ${start5_10Days} && last_used <= ${end5_10Days}`,
+      总记录数: fileHistoryItems.length,
+      计算方式: '使用与列表筛选完全相同的逻辑（简单时间范围过滤，不使用优先级判断）',
+    });
+
     let count5Days = 0;
     let count5_10Days = 0;
     let count10_30Days = 0;
     let count30DaysOlder = 0;
 
-    // 使用与 filteredHistoryItems 完全相同的过滤逻辑
+    // 用于记录 5-10天 的匹配详情（只记录前10条，避免日志过多）
+    const matched5_10Days: Array<{ path: string; last_used: number; last_used_str: string }> = [];
+
+    // 使用与 filteredHistoryItems 完全相同的过滤逻辑（简单时间范围过滤，不使用优先级）
+    // 这样按钮统计数量和列表筛选数量会完全一致
+    // 每个时间段独立计算，只根据时间范围判断，不互相影响
     fileHistoryItems.forEach((item) => {
-      // 近5天
-      if (!(start5Days !== undefined && item.last_used < start5Days) &&
-          !(end5Days !== undefined && item.last_used > end5Days) &&
-          (start5Days !== undefined || end5Days !== undefined)) {
+      // 近5天：使用与 filteredHistoryItems 完全相同的逻辑
+      if (start5Days !== undefined && item.last_used < start5Days) {
+        // 不在范围内
+      } else if (end5Days !== undefined && item.last_used > end5Days) {
+        // 不在范围内
+      } else {
+        // 在范围内（与 filteredHistoryItems 的逻辑一致）
         count5Days++;
-        return;
       }
 
-      // 5-10天
-      if (!(start5_10Days !== undefined && item.last_used < start5_10Days) &&
-          !(end5_10Days !== undefined && item.last_used > end5_10Days) &&
-          (start5_10Days !== undefined || end5_10Days !== undefined)) {
+      // 5-10天：使用与 filteredHistoryItems 完全相同的逻辑
+      if (start5_10Days !== undefined && item.last_used < start5_10Days) {
+        // 不在范围内
+      } else if (end5_10Days !== undefined && item.last_used > end5_10Days) {
+        // 不在范围内
+      } else {
+        // 在范围内（与 filteredHistoryItems 的逻辑一致）
         count5_10Days++;
-        return;
+        // 记录匹配的详情（只记录前10条）
+        if (matched5_10Days.length < 10) {
+          matched5_10Days.push({
+            path: item.path,
+            last_used: item.last_used,
+            last_used_str: new Date(item.last_used * 1000).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }),
+          });
+        }
       }
 
-      // 10-30天
-      if (!(start10_30Days !== undefined && item.last_used < start10_30Days) &&
-          !(end10_30Days !== undefined && item.last_used > end10_30Days) &&
-          (start10_30Days !== undefined || end10_30Days !== undefined)) {
+      // 10-30天：使用与 filteredHistoryItems 完全相同的逻辑
+      if (start10_30Days !== undefined && item.last_used < start10_30Days) {
+        // 不在范围内
+      } else if (end10_30Days !== undefined && item.last_used > end10_30Days) {
+        // 不在范围内
+      } else {
+        // 在范围内（与 filteredHistoryItems 的逻辑一致）
         count10_30Days++;
-        return;
       }
 
-      // 30天前（只有 end，没有 start）
-      if (!(end30Days !== undefined && item.last_used > end30Days) && end30Days !== undefined) {
+      // 30天前（只有 end，没有 start）：使用与 filteredHistoryItems 完全相同的逻辑
+      if (end30Days !== undefined && item.last_used > end30Days) {
+        // 不在范围内
+      } else if (end30Days !== undefined) {
+        // 在范围内（与 filteredHistoryItems 的逻辑一致）
         count30DaysOlder++;
       }
     });
+
+    // 打印 5-10天 的计算结果
+    console.log('5-10天计算结果:', {
+      tenDaysAgo: count5_10Days,
+      计算说明: `遍历了 ${fileHistoryItems.length} 条记录，找到 ${count5_10Days} 条匹配 5-10天 范围的记录`,
+      匹配条件: `与列表筛选逻辑一致：!(last_used < ${start5_10Days}) && !(last_used > ${end5_10Days})`,
+      简化条件: `last_used >= ${start5_10Days} && last_used <= ${end5_10Days}`,
+      说明: '此数量应与点击按钮后列表筛选的数量完全一致',
+    });
+    
+    // 打印匹配的示例记录（前10条）
+    if (matched5_10Days.length > 0) {
+      console.log('匹配的示例记录（前10条）:', matched5_10Days);
+    }
+    
+    console.log('========== historySummary.tenDaysAgo 计算完成 ==========');
 
     return {
       fiveDaysAgo: count5Days,
