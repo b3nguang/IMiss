@@ -1791,6 +1791,85 @@ export function LauncherWindow() {
             return normalizedAppPath === normalizedFilePath;
           });
         })
+        // 在 filteredFiles 内部去重：对于 .lnk 文件，检查是否存在对应的 .exe 文件
+        // 优先保留 .exe 文件，如果 .lnk 文件指向相同的应用，则过滤掉 .lnk
+        .reduce((acc: typeof filteredFiles, file) => {
+          const pathLower = file.path.toLowerCase();
+          if (pathLower.endsWith('.exe')) {
+            // 直接添加 .exe 文件
+            acc.push(file);
+          } else if (pathLower.endsWith('.lnk')) {
+            // 对于 .lnk 文件，检查是否已有对应的 .exe 文件
+            const lnkPathLower = file.path.toLowerCase();
+            const lnkName = file.name.toLowerCase().replace(/\.lnk$/, '').trim();
+            
+            // 检查是否已有对应的 .exe 文件（通过名称和路径判断）
+            const hasCorrespondingExe = acc.some(existingFile => {
+              const existingPathLower = existingFile.path.toLowerCase();
+              if (!existingPathLower.endsWith('.exe')) return false;
+              
+              // 提取 .exe 文件的基本名称（不含扩展名）
+              const exeName = existingFile.name.toLowerCase().replace(/\.exe$/, '').trim();
+              
+              // 方法1：名称匹配 - 如果 .lnk 名称包含 .exe 名称，或者 .exe 名称包含 .lnk 名称的核心部分
+              // 例如："Navicat Premium 17.lnk" 包含 "navicat"
+              if (lnkName.includes(exeName) || exeName.includes(lnkName.split(' ')[0])) {
+                return true;
+              }
+              
+              // 方法2：路径匹配 - 检查路径中的目录结构是否匹配
+              // 提取路径中的关键目录名（通常是软件公司名或产品名）
+              // 例如：C:\Program Files\PremiumSoft\Navicat Premium 17\navicat.exe
+              //      C:\ProgramData\Microsoft\Windows\Start Menu\Programs\PremiumSoft\Navicat Premium 17.lnk
+              // 两个路径都包含 "PremiumSoft"，说明可能是同一应用
+              
+              // 从 .exe 路径中提取目录名（排除常见系统目录）
+              // 尝试匹配 Program Files\公司名 或 Program Files\公司名\产品名 的模式
+              const exeDirMatches = existingPathLower.match(/(?:program files|program files \(x86\))\\([^\\/]+)(?:\\[^\\/]+)?\\/i);
+              if (exeDirMatches && exeDirMatches[1]) {
+                const exeDirName = exeDirMatches[1].toLowerCase();
+                // 检查 .lnk 路径中是否也包含这个目录名
+                if (lnkPathLower.includes(exeDirName)) {
+                  // 进一步检查：如果路径中都包含相同的目录名，且 .lnk 名称与 .exe 所在路径相关
+                  // 例如：.exe 在 PremiumSoft\Navicat Premium 17 目录下，.lnk 名称是 "Navicat Premium 17"
+                  const exePathContainsLnkName = existingPathLower.includes(lnkName);
+                  const lnkNameContainsExeDir = lnkName.includes(exeDirName);
+                  if (exePathContainsLnkName || lnkNameContainsExeDir || existingPathLower.includes(lnkName.split(' ')[0])) {
+                    return true;
+                  }
+                }
+              }
+              
+              // 方法3：反向检查 - 从 .lnk 路径中提取目录名（在 Start Menu 中，通常在 Programs 子目录下）
+              // 例如：Programs\PremiumSoft\Navicat Premium 17.lnk
+              const lnkDirMatches = lnkPathLower.match(/programs\\([^\\/]+)/i);
+              if (lnkDirMatches && lnkDirMatches[1]) {
+                const lnkDirName = lnkDirMatches[1].toLowerCase();
+                // 检查 .exe 路径中是否也包含这个目录名
+                // 如果包含，且名称也相关，则认为是同一应用
+                if (existingPathLower.includes(lnkDirName)) {
+                  // 进一步检查名称相关性
+                  const exePathContainsLnkName = existingPathLower.includes(lnkName);
+                  const lnkNameContainsExeName = lnkName.includes(exeName);
+                  if (exePathContainsLnkName || lnkNameContainsExeName) {
+                    return true;
+                  }
+                }
+              }
+              
+              return false;
+            });
+            
+            // 如果没有对应的 .exe 文件，添加该 .lnk 文件
+            if (!hasCorrespondingExe) {
+              acc.push(file);
+            }
+          } else {
+            // 其他类型的文件，直接添加
+            acc.push(file);
+          }
+          return acc;
+        }, [])
         .filter((file) => {
           // 同名去重：避免 file history 与 Everything/应用列表名称重复
           const normalizedName = normalizeAppName(file.name);

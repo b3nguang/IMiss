@@ -247,12 +247,18 @@ pub mod windows {
             a.path.len().cmp(&b.path.len())
         });
         
-        // Deduplicate by name, but be careful with Settings app
+        // Deduplicate by name and target path (for .lnk files)
         // Keep at least one Settings app (prefer shell:AppsFolder, then ms-settings:)
         let mut deduplicated = Vec::new();
         let mut seen_names = std::collections::HashSet::new();
+        let mut seen_target_paths = std::collections::HashSet::new(); // Track target paths to avoid duplicates
         let mut settings_apps: Vec<AppInfo> = Vec::new();
         let mut calculator_apps: Vec<AppInfo> = Vec::new();
+        
+        // Helper function to normalize path for comparison
+        let normalize_path = |path: &str| -> String {
+            path.to_lowercase().replace('\\', "/")
+        };
         
         for app in apps {
             let name_lower = app.name.to_lowercase();
@@ -267,11 +273,39 @@ pub mod windows {
                 // Special handling for Calculator app
                 calculator_apps.push(app);
             } else {
-                // For other apps, normal deduplication
-                if !seen_names.contains(&name_lower) {
-                    seen_names.insert(name_lower.clone());
-                    deduplicated.push(app);
+                // For other apps, check target path first (especially for .lnk files)
+                let app_path_lower = app.path.to_lowercase();
+                
+                // For .lnk files, we skip target path resolution during deduplication to avoid performance issues
+                // Instead, we rely on name-based deduplication and priority sorting (.exe files come before .lnk)
+                // This means .exe files will be added first, and .lnk files with the same name will be skipped
+                let target_path_to_check = if !app_path_lower.ends_with(".lnk") {
+                    // Only normalize .exe paths, not .lnk paths (to avoid slow PowerShell calls)
+                    Some(normalize_path(&app.path))
+                } else {
+                    // For .lnk files, use the .lnk path itself for comparison
+                    // This won't catch duplicates where .lnk points to .exe, but it's fast
+                    None
+                };
+                
+                // If target path is already seen (for .exe files only), skip
+                if let Some(ref target_path) = target_path_to_check {
+                    if seen_target_paths.contains(target_path) {
+                        continue;
+                    }
                 }
+                
+                // Skip if name already seen (name-based deduplication)
+                if seen_names.contains(&name_lower) {
+                    continue;
+                }
+                
+                // Add the app
+                seen_names.insert(name_lower.clone());
+                if let Some(target_path) = target_path_to_check {
+                    seen_target_paths.insert(target_path);
+                }
+                deduplicated.push(app);
             }
         }
         
