@@ -93,6 +93,10 @@ export const tauriApi = {
     return invoke("extract_icon_from_path", { filePath });
   },
 
+  async testAllIconExtractionMethods(filePath: string): Promise<Array<[string, string | null]>> {
+    return invoke("test_all_icon_extraction_methods", { filePath });
+  },
+
   async toggleLauncher(): Promise<void> {
     return invoke("toggle_launcher");
   },

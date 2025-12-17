@@ -1534,6 +1534,58 @@ pub async fn extract_icon_from_path(file_path: String, app: tauri::AppHandle) ->
     Ok(icon_result)
 }
 
+/// 测试所有图标提取方法，返回每种方法的结果
+/// 对于 .exe 和 .lnk 文件，使用与应用索引列表完全相同的提取逻辑
+#[tauri::command]
+pub async fn test_all_icon_extraction_methods(file_path: String) -> Result<Vec<(String, Option<String>)>, String> {
+    use std::path::Path;
+    
+    let results = async_runtime::spawn_blocking(move || {
+        let path = Path::new(&file_path);
+        
+        if !path.exists() {
+            return Err(format!("文件不存在: {}", file_path));
+        }
+        
+        let ext = path
+            .extension()
+            .and_then(|s| s.to_str())
+            .map(|s| s.to_lowercase());
+        
+        // 使用与应用索引列表完全相同的提取逻辑
+        if ext == Some("lnk".to_string()) {
+            // 对于 .lnk 文件，先显示实际使用的提取方法（与应用索引列表一致）
+            let mut results = Vec::new();
+            
+            // 实际使用的方法（与应用索引列表完全一致）
+            let actual_result = app_search::windows::extract_lnk_icon_base64(path);
+            results.push(("实际使用的方法 (extract_lnk_icon_base64)".to_string(), actual_result));
+            
+            // 然后显示所有测试方法（用于调试）
+            let test_results = app_search::windows::test_all_icon_extraction_methods(path);
+            results.extend(test_results);
+            
+            Ok(results)
+        } else if ext == Some("exe".to_string()) {
+            // 对于 .exe 文件，使用与应用索引列表完全相同的提取逻辑
+            let mut results = Vec::new();
+            
+            // 实际使用的方法（与应用索引列表完全一致）
+            // 这是应用索引列表使用的唯一方法
+            let actual_result = app_search::windows::extract_icon_base64(path);
+            results.push(("实际使用的方法 (extract_icon_base64)".to_string(), actual_result));
+            
+            Ok(results)
+        } else {
+            Err(format!("不支持的文件类型: {:?}", ext))
+        }
+    })
+    .await
+    .map_err(|e| format!("test_all_icon_extraction_methods join error: {}", e))??;
+    
+    Ok(results)
+}
+
 /// 设置 launcher 窗口位置（居中但稍微偏上）
 /// 优先使用保存的位置，如果没有保存的位置则计算默认位置
 fn set_launcher_window_position(window: &tauri::WebviewWindow, app_data_dir: &std::path::Path) {

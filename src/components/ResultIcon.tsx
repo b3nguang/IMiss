@@ -237,9 +237,15 @@ export function ResultIcon({
     }
 
     if (iconToUse) {
+      // 处理图标格式：如果是纯 base64 字符串，添加 data:image/png;base64, 前缀
+      // 如果已经包含前缀，保持不变（与应用索引列表的处理逻辑一致）
+      const iconSrc = iconToUse.startsWith('data:image') 
+        ? iconToUse 
+        : `data:image/png;base64,${iconToUse}`;
+      
       return (
         <img
-          src={iconToUse}
+          src={iconSrc}
           alt={result.displayName}
           className={`${iconSize} object-contain`}
           style={{ imageRendering: "auto" as const }}
@@ -512,11 +518,17 @@ export function ResultIcon({
       
       // 优先使用应用列表中的图标，如果没有则使用动态提取的图标
       const iconToUse = matchedApp?.icon || extractedFileIcon;
-      
-      if (iconToUse) {
+
+      if (iconToUse && !isIconExtractionFailed(iconToUse)) {
+        // 处理图标格式：如果是纯 base64 字符串，添加 data:image/png;base64, 前缀
+        // 如果已经包含前缀，保持不变（与应用索引列表的处理逻辑一致）
+        const iconSrc = iconToUse.startsWith('data:image') 
+          ? iconToUse 
+          : `data:image/png;base64,${iconToUse}`;
+        
         return (
           <img
-            src={iconToUse}
+            src={iconSrc}
             alt={result.displayName}
             className="w-8 h-8 object-contain"
             style={{ imageRendering: "auto" as const }}

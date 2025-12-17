@@ -702,6 +702,12 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
       
       if (icon) {
         console.log("[应用索引列表] 图标提取成功:", appPath);
+        // 清除之前的错误标记（如果有）
+        setAppIconErrorMap((prev) => {
+          const newMap = { ...prev };
+          delete newMap[appPath];
+          return newMap;
+        });
         // 更新应用列表中的图标
         setAppIndexList((prevList) => {
           return prevList.map((app) => {
@@ -1238,7 +1244,14 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
       unlistenIconsUpdated = await listen<Array<[string, string]>>("app-icons-updated", (event) => {
         const iconUpdates = event.payload;
         console.log("[应用结果列表] 图标已更新:", iconUpdates);
-        // 更新应用列表中的图标
+        // 清除错误标记并更新应用列表中的图标
+        setAppIconErrorMap((prev) => {
+          const newMap = { ...prev };
+          iconUpdates.forEach(([path]) => {
+            delete newMap[path];
+          });
+          return newMap;
+        });
         setAppIndexList((prevList) => {
           const updatedList = prevList.map((app) => {
             const update = iconUpdates.find(([path]) => path === app.path);
@@ -1397,12 +1410,20 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
   // 渲染应用图标，加载失败时显示占位图标
   const renderAppIcon = (app: AppInfo) => {
     const showFallbackIcon = !app.icon || isIconExtractionFailed(app.icon) || appIconErrorMap[app.path];
+    
+    // 处理图标格式：如果是纯 base64 字符串，添加 data:image/png;base64, 前缀
+    // 如果已经包含前缀，保持不变
+    const iconSrc = app.icon && !showFallbackIcon
+      ? (app.icon.startsWith('data:image') 
+          ? app.icon 
+          : `data:image/png;base64,${app.icon}`)
+      : undefined;
 
     return (
       <div className="w-10 h-10 rounded-lg bg-gray-50 border border-gray-200 flex items-center justify-center overflow-hidden flex-shrink-0">
-        {!showFallbackIcon ? (
+        {!showFallbackIcon && iconSrc ? (
           <img
-            src={app.icon}
+            src={iconSrc}
             alt={app.name}
             className="w-8 h-8 object-contain"
             onError={() =>

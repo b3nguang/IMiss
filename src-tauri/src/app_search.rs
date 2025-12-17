@@ -1222,7 +1222,8 @@ pub mod windows {
                             let _ = DeleteObject(HGDIOBJ(hbitmap.0));
                             
                             if let Some(ref png_base64) = png_result {
-                                return Some(format!("data:image/png;base64,{}", png_base64));
+                                // 返回纯 base64 字符串，不带 data:image/png;base64, 前缀
+                                return Some(png_base64.clone());
                             }
                         },
                         Err(_) => {
@@ -1322,7 +1323,8 @@ pub mod windows {
             // 清理图标句柄
             DestroyIcon(shfi.h_icon);
             
-            icon_result.map(|png_base64| format!("data:image/png;base64,{}", png_base64))
+            // 返回纯 base64 字符串，不带 data:image/png;base64, 前缀
+            icon_result
         }
     }
     
@@ -1512,10 +1514,24 @@ pub mod windows {
     fn extract_exe_icon_base64_native(file_path: &Path) -> Option<String> {
         let file_path_str = file_path.to_string_lossy().to_string();
         
-        // #region agent log
         eprintln!("[EXE图标Native] 开始提取: file_path={}", file_path_str);
-        // #endregion
         
+        // 优先使用 IShellItemImageFactory（最可靠）
+        // 尝试多次重试，确保使用正确的标志
+        for retry in 0..3 {
+            if let Some(result) = extract_icon_png_via_shell(file_path, 32) {
+                eprintln!("[EXE图标Native] IShellItemImageFactory 成功: file_path={}, retry={}, icon_len={}", 
+                    file_path_str, retry, result.len());
+                return Some(result);
+            } else {
+                eprintln!("[EXE图标Native] IShellItemImageFactory 失败 (重试 {}): file_path={}", retry, file_path_str);
+                if retry < 2 {
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
+            }
+        }
+        
+        // 回退方案: 使用 ExtractIconExW + icon_to_png
         use std::ffi::OsStr;
         use std::os::windows::ffi::OsStrExt;
         use windows_sys::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
@@ -1525,10 +1541,8 @@ pub mod windows {
         // 初始化 COM（单线程模式，用于 COM 接口）
         unsafe {
             let hr = CoInitializeEx(std::ptr::null_mut(), COINIT_APARTMENTTHREADED as u32);
-            if hr < 0 {
-                // #region agent log
-                eprintln!("[EXE图标Native] CoInitializeEx 失败: file_path={}, hr={}", file_path_str, hr);
-                // #endregion
+            if hr < 0 && hr != 0x00000001 {
+                eprintln!("[EXE图标Native] CoInitializeEx 失败: file_path={}, hr=0x{:08X}", file_path_str, hr);
                 return None;
             }
         }
@@ -1551,30 +1565,23 @@ pub mod windows {
                     1,
                 );
 
-                // #region agent log
                 eprintln!("[EXE图标Native] ExtractIconExW 调用: file_path={}, count={}, icon_handle={}", 
                     file_path_str, count, large_icons[0]);
-                // #endregion
 
                 if count > 0 && large_icons[0] != 0 {
                     if let Some(png_data) = icon_to_png(large_icons[0]) {
-                        // #region agent log
                         eprintln!("[EXE图标Native] icon_to_png 成功: file_path={}, png_len={}", 
                             file_path_str, png_data.len());
-                        // #endregion
                         DestroyIcon(large_icons[0]);
-                        return Some(format!("data:image/png;base64,{}", png_data));
+                        // 返回纯 base64 字符串，不带 data:image/png;base64, 前缀
+                        return Some(png_data);
                     }
-                    // #region agent log
                     eprintln!("[EXE图标Native] icon_to_png 失败: file_path={}", file_path_str);
-                    // #endregion
                     DestroyIcon(large_icons[0]);
                 }
             }
 
-            // #region agent log
             eprintln!("[EXE图标Native] 提取失败，返回 None: file_path={}", file_path_str);
-            // #endregion
             None
         })();
 
@@ -1583,12 +1590,10 @@ pub mod windows {
             CoUninitialize();
         }
 
-        // #region agent log
         let success = result.is_some();
         let icon_len = result.as_ref().map(|s| s.len()).unwrap_or(0);
         eprintln!("[EXE图标Native] 最终结果: file_path={}, success={}, icon_len={}", 
             file_path_str, success, icon_len);
-        // #endregion
 
         result
     }
@@ -1661,8 +1666,8 @@ try {
     # 创建支持透明度的位图（Format32bppArgb 支持 alpha 通道）
     $resized = New-Object System.Drawing.Bitmap(32, 32, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
     $graphics = [System.Drawing.Graphics]::FromImage($resized)
-    # 不填充白色背景，保持图标的透明度
-    # $graphics.Clear([System.Drawing.Color]::White)
+    # 清除为完全透明（alpha=0），确保位图被正确初始化
+    $graphics.Clear([System.Drawing.Color]::Transparent)
     $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
     $graphics.DrawImage($bitmap, 0, 0, 32, 32)
     $ms = New-Object System.IO.MemoryStream
@@ -1719,7 +1724,9 @@ try {
                 eprintln!("[图标提取] PowerShell 成功: file_path={}, base64_len={}", 
                     file_path_str, base64.len());
                 // #endregion
-                return Some(format!("data:image/png;base64,{}", base64));
+                // 返回纯 base64 字符串，不带 data:image/png;base64, 前缀
+                // 前端会统一添加前缀
+                return Some(base64);
             }
         }
         
@@ -1729,60 +1736,386 @@ try {
         None
     }
 
+    // 使用 IShellItemImageFactory 提取图标（优先方案）
+    // 直接从 Shell 获取已合成的带 alpha 通道的位图
+    fn extract_icon_png_via_shell(file_path: &Path, size: u32) -> Option<String> {
+        use ::windows::Win32::UI::Shell::{IShellItemImageFactory, SHCreateItemFromParsingName, SIIGBF};
+        use ::windows::Win32::Graphics::Gdi::{DeleteObject, HGDIOBJ};
+        use ::windows::core::PCWSTR;
+        use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt;
+        
+        unsafe {
+            // 初始化 COM（单线程模式）
+            use windows_sys::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
+            let hr = CoInitializeEx(std::ptr::null_mut(), COINIT_APARTMENTTHREADED as u32);
+            // 如果已经初始化，返回 S_FALSE (0x00000001)，这是正常的
+            if hr < 0 && hr != 0x00000001 {
+                eprintln!("[extract_icon_png_via_shell] CoInitializeEx 失败: hr=0x{:08X}", hr);
+                return None;
+            }
+            
+            let result = (|| -> Option<String> {
+                // 规范化路径：统一使用反斜杠，移除 \\?\ 前缀（如果存在）
+                let path_str = file_path.to_string_lossy().to_string();
+                let mut normalized_path = path_str.replace("/", "\\");
+                // 移除 \\?\ 前缀（如果存在），因为某些 Windows API 可能不支持
+                if normalized_path.starts_with("\\\\?\\") {
+                    normalized_path = normalized_path[4..].to_string();
+                }
+                
+                eprintln!("[extract_icon_png_via_shell] 规范化路径: 原始={}, 规范化后={}", 
+                    path_str, normalized_path);
+                
+                // 将规范化后的路径转换为 PCWSTR
+                let path_wide: Vec<u16> = OsStr::new(&normalized_path)
+                    .encode_wide()
+                    .chain(Some(0))
+                    .collect();
+                let path_pcwstr = PCWSTR::from_raw(path_wide.as_ptr());
+                
+                // 使用 SHCreateItemFromParsingName 创建 IShellItem
+                use ::windows::Win32::UI::Shell::IShellItem;
+                let shell_item: IShellItem = match SHCreateItemFromParsingName(path_pcwstr, None) {
+                    Ok(item) => item,
+                    Err(e) => {
+                        eprintln!("[extract_icon_png_via_shell] SHCreateItemFromParsingName 失败: hr=0x{:08X}, 路径={}", 
+                            e.code().0, normalized_path);
+                        return None;
+                    }
+                };
+                
+                // QueryInterface 获取 IShellItemImageFactory
+                use ::windows::core::Interface;
+                let image_factory: IShellItemImageFactory = match shell_item.cast() {
+                    Ok(factory) => factory,
+                    Err(e) => {
+                        eprintln!("[extract_icon_png_via_shell] QueryInterface IShellItemImageFactory 失败: hr=0x{:08X}", e.code().0);
+                        return None;
+                    }
+                };
+                
+                // 定义图标尺寸
+                let icon_size = ::windows::Win32::Foundation::SIZE { cx: size as i32, cy: size as i32 };
+                
+                // 尝试不同的标志组合
+                // 优先使用默认标志（0x00000000），因为测试发现这个标志提取的图标是正确的
+                // SIIGBF_ICONONLY (0x00000010): 只要图标，不要缩略图
+                // SIIGBF_BIGGERSIZEOK (0x00000001): 允许返回更大的尺寸
+                let flags_list = vec![
+                    SIIGBF(0x00000000u32 as i32), // 默认（优先使用，确保与测试函数一致）
+                    SIIGBF((0x00000010u32 | 0x00000001u32) as i32), // ICONONLY | BIGGERSIZEOK（回退）
+                    SIIGBF(0x00000010u32 as i32), // ICONONLY（回退）
+                ];
+                
+                for (idx, flags) in flags_list.iter().enumerate() {
+                    // 调用 GetImage 获取 HBITMAP（已包含 alpha 通道）
+                    match image_factory.GetImage(icon_size, *flags) {
+                        Ok(hbitmap) => {
+                            eprintln!("[extract_icon_png_via_shell] GetImage 成功: file_path={}, flags=0x{:08X}, hbitmap=0x{:016X}, size={}", 
+                                file_path.to_string_lossy(), flags.0, hbitmap.0 as usize, size);
+                            
+                            // 将 HBITMAP 转换为 PNG
+                            let hbitmap_value = hbitmap.0 as isize;
+                            let png_result = bitmap_to_png_direct(hbitmap_value, size);
+                            
+                            // 清理 HBITMAP（必须释放）
+                            let _ = DeleteObject(HGDIOBJ(hbitmap.0));
+                            
+                            if let Some(png_base64) = png_result {
+                                eprintln!("[extract_icon_png_via_shell] 成功提取图标: file_path={}, size={}, base64_len={}, flags=0x{:08X}", 
+                                    file_path.to_string_lossy(), size, png_base64.len(), flags.0);
+                                // 返回纯 base64 字符串，不带 data:image/png;base64, 前缀
+                                return Some(png_base64);
+                            } else {
+                                eprintln!("[extract_icon_png_via_shell] bitmap_to_png_direct 失败: file_path={}, flags=0x{:08X}", 
+                                    file_path.to_string_lossy(), flags.0);
+                            }
+                        },
+                        Err(e) => {
+                            eprintln!("[extract_icon_png_via_shell] GetImage 失败 (尝试 {}): hr=0x{:08X}", 
+                                idx, e.code().0);
+                            continue; // 尝试下一个标志
+                        }
+                    }
+                }
+                
+                None
+            })();
+            
+            // 清理 COM（只有在成功初始化时才清理）
+            if hr >= 0 || hr == 0x00000001 {
+                CoUninitialize();
+            }
+            
+            result
+        }
+    }
+    
+    // 直接从 HBITMAP 读取像素数据并转换为 PNG（改进版）
+    // 不再创建新的 DIB 和复制，直接从源位图读取
+    fn bitmap_to_png_direct(hbitmap: isize, target_size: u32) -> Option<String> {
+        use windows_sys::Win32::Graphics::Gdi::{
+            GetDIBits, CreateCompatibleDC, SelectObject, DeleteObject, DeleteDC,
+            BITMAP, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, BI_RGB, GetDC, ReleaseDC, GetObjectW,
+        };
+        
+        unsafe {
+            // 获取屏幕 DC
+            let hdc_screen = GetDC(0);
+            if hdc_screen == 0 {
+                eprintln!("[bitmap_to_png_direct] GetDC 失败");
+                return None;
+            }
+            
+            let hdc = CreateCompatibleDC(hdc_screen);
+            if hdc == 0 {
+                ReleaseDC(0, hdc_screen);
+                eprintln!("[bitmap_to_png_direct] CreateCompatibleDC 失败");
+                return None;
+            }
+            
+            // 获取位图信息
+            let mut bitmap = BITMAP {
+                bmType: 0,
+                bmWidth: 0,
+                bmHeight: 0,
+                bmWidthBytes: 0,
+                bmPlanes: 1,
+                bmBitsPixel: 32,
+                bmBits: std::ptr::null_mut(),
+            };
+            
+            // 获取位图尺寸和格式
+            if GetObjectW(hbitmap, std::mem::size_of::<BITMAP>() as i32, &mut bitmap as *mut _ as *mut _) == 0 {
+                DeleteDC(hdc);
+                ReleaseDC(0, hdc_screen);
+                eprintln!("[bitmap_to_png_direct] GetObjectW 失败");
+                return None;
+            }
+            
+            let width = bitmap.bmWidth as u32;
+            let height = bitmap.bmHeight.abs() as u32; // 取绝对值，处理 top-down 位图
+            
+            eprintln!("[bitmap_to_png_direct] 位图信息: width={}, height={}, bitsPixel={}, widthBytes={}", 
+                width, height, bitmap.bmBitsPixel, bitmap.bmWidthBytes);
+            
+            // 验证位图格式（必须是 32 位）
+            if bitmap.bmBitsPixel != 32 {
+                eprintln!("[bitmap_to_png_direct] 位图不是 32 位: bitsPixel={}", bitmap.bmBitsPixel);
+                DeleteDC(hdc);
+                ReleaseDC(0, hdc_screen);
+                return None;
+            }
+            
+            // 创建 BITMAPINFO 用于 GetDIBits
+            let mut bitmap_info = BITMAPINFO {
+                bmiHeader: BITMAPINFOHEADER {
+                    biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                    biWidth: width as i32,
+                    biHeight: -(height as i32), // 负值表示 top-down DIB
+                    biPlanes: 1,
+                    biBitCount: 32,
+                    biCompression: BI_RGB,
+                    biSizeImage: 0,
+                    biXPelsPerMeter: 0,
+                    biYPelsPerMeter: 0,
+                    biClrUsed: 0,
+                    biClrImportant: 0,
+                },
+                bmiColors: [windows_sys::Win32::Graphics::Gdi::RGBQUAD {
+                    rgbBlue: 0,
+                    rgbGreen: 0,
+                    rgbRed: 0,
+                    rgbReserved: 0,
+                }; 1],
+            };
+            
+            // 分配缓冲区读取位图数据
+            let buffer_size = (width * height * 4) as usize;
+            let mut dib_bits = vec![0u8; buffer_size];
+            
+            // 将位图选入 DC（需要先选入才能用 GetDIBits）
+            let old_bitmap = SelectObject(hdc, hbitmap);
+            
+            // 读取位图数据（BGRA 格式）
+            let lines_written = GetDIBits(
+                hdc_screen,
+                hbitmap,
+                0,
+                height,
+                dib_bits.as_mut_ptr() as *mut _,
+                &mut bitmap_info,
+                DIB_RGB_COLORS,
+            );
+            
+            // 恢复 DC
+            SelectObject(hdc, old_bitmap);
+            DeleteDC(hdc);
+            ReleaseDC(0, hdc_screen);
+            
+            if lines_written == 0 {
+                eprintln!("[bitmap_to_png_direct] GetDIBits 失败: lines_written=0");
+                return None;
+            }
+            
+            eprintln!("[bitmap_to_png_direct] GetDIBits 成功: lines_written={}, buffer_size={}", 
+                lines_written, buffer_size);
+            
+            // 检查位图数据是否包含有效内容
+            let total_pixels = width * height;
+            let non_zero_pixels = dib_bits.chunks_exact(4)
+                .filter(|chunk| chunk.iter().any(|&b| b != 0))
+                .count();
+            
+            eprintln!("[bitmap_to_png_direct] 位图数据检查: 总像素={}, 非零像素={}, 非零比例={:.2}%", 
+                total_pixels, non_zero_pixels, 
+                (non_zero_pixels as f32 / total_pixels as f32) * 100.0);
+            
+            // 如果所有像素都是 0，说明位图无效
+            if non_zero_pixels == 0 {
+                eprintln!("[bitmap_to_png_direct] 警告: 所有像素都是 0，位图可能无效");
+                return None;
+            }
+            
+            // 如果需要缩放，使用简单的最近邻插值
+            let mut final_bits = if width != target_size || height != target_size {
+                eprintln!("[bitmap_to_png_direct] 需要缩放: {}x{} -> {}x{}", width, height, target_size, target_size);
+                let mut scaled = vec![0u8; (target_size * target_size * 4) as usize];
+                let scale_x = width as f32 / target_size as f32;
+                let scale_y = height as f32 / target_size as f32;
+                
+                for y in 0..target_size {
+                    for x in 0..target_size {
+                        let src_x = (x as f32 * scale_x) as u32;
+                        let src_y = (y as f32 * scale_y) as u32;
+                        let src_idx = ((src_y * width + src_x) * 4) as usize;
+                        let dst_idx = ((y * target_size + x) * 4) as usize;
+                        
+                        if src_idx + 3 < dib_bits.len() && dst_idx + 3 < scaled.len() {
+                            scaled[dst_idx..dst_idx + 4].copy_from_slice(&dib_bits[src_idx..src_idx + 4]);
+                        }
+                    }
+                }
+                scaled
+            } else {
+                dib_bits
+            };
+            
+            // 将 BGRA 转换为 RGBA
+            for chunk in final_bits.chunks_exact_mut(4) {
+                chunk.swap(0, 2); // B <-> R
+            }
+            
+            // 使用 png crate 编码为 PNG
+            let mut png_data = Vec::new();
+            {
+                let mut encoder = png::Encoder::new(
+                    std::io::Cursor::new(&mut png_data),
+                    target_size,
+                    target_size,
+                );
+                encoder.set_color(png::ColorType::Rgba);
+                encoder.set_depth(png::BitDepth::Eight);
+                let mut writer = encoder.write_header().ok()?;
+                writer.write_image_data(&final_bits).ok()?;
+            }
+            
+            eprintln!("[bitmap_to_png_direct] PNG 编码完成: png_data_len={}", png_data.len());
+            
+            // 验证 PNG 数据长度
+            if png_data.len() < 200 {
+                eprintln!("[bitmap_to_png_direct] 警告: PNG 数据长度过小 ({} 字节)", png_data.len());
+                return None;
+            }
+            
+            // 编码为 base64
+            Some(base64::engine::general_purpose::STANDARD.encode(&png_data))
+        }
+    }
+
     // Extract icon from .lnk file using Native Windows API
     // This is the new implementation using Rust + Windows API directly
     // Falls back to PowerShell method if Native API fails
     pub fn extract_lnk_icon_base64_native(lnk_path: &Path) -> Option<String> {
         let lnk_path_str = lnk_path.to_string_lossy().to_string();
         
-        // #region agent log
         eprintln!("[LNK图标Native] 开始提取: lnk_path={}", lnk_path_str);
-        // #endregion
         
-        use std::ffi::OsStr;
-        use std::os::windows::ffi::OsStrExt;
-        use windows_sys::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
-        use windows_sys::Win32::UI::Shell::ExtractIconExW;
-        use windows_sys::Win32::UI::WindowsAndMessaging::DestroyIcon;
-
-        // 初始化 COM（单线程模式，用于 COM 接口）
-        unsafe {
-            let hr = CoInitializeEx(std::ptr::null_mut(), COINIT_APARTMENTTHREADED as u32);
-            if hr < 0 {
-                // #region agent log
-                eprintln!("[LNK图标Native] CoInitializeEx 失败: lnk_path={}, hr={}", lnk_path_str, hr);
-                // #endregion
-                return None;
+        // 方法 1: 优先直接从 .lnk 文件本身提取图标（与测试函数一致）
+        // 测试发现：直接从 .lnk 文件提取的图标是正确的，特别是对于系统快捷方式和某些 .exe 快捷方式
+        // 尝试多次重试，因为 COM 状态或路径格式可能导致首次失败
+        eprintln!("[LNK图标Native] 尝试直接从 .lnk 文件提取: lnk_path={}", lnk_path_str);
+        for retry in 0..3 {
+            if let Some(result) = extract_icon_png_via_shell(lnk_path, 32) {
+                eprintln!("[LNK图标Native] 直接从 .lnk 文件提取成功: lnk_path={}, icon_len={}, retry={}", 
+                    lnk_path_str, result.len(), retry);
+                return Some(result);
+            } else {
+                eprintln!("[LNK图标Native] 直接从 .lnk 文件提取失败 (重试 {}): lnk_path={}", retry, lnk_path_str);
+                // 短暂延迟后重试（给 COM 一些时间）
+                if retry < 2 {
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
             }
         }
+        eprintln!("[LNK图标Native] 直接从 .lnk 文件提取失败（已重试3次），尝试回退方案: lnk_path={}", lnk_path_str);
+        
+        // 方法 2: 如果直接从 .lnk 文件提取失败，解析 .lnk 文件获取 TargetPath 作为回退方案
+        let (icon_source_path, icon_index) = match get_lnk_icon_location(lnk_path) {
+            Some(result) => {
+                eprintln!("[LNK图标Native] get_lnk_icon_location 成功: lnk_path={}, icon_source_path={}, icon_index={}", 
+                    lnk_path_str, result.0.to_string_lossy(), result.1);
+                result
+            },
+            None => {
+                eprintln!("[LNK图标Native] get_lnk_icon_location 失败: lnk_path={}", lnk_path_str);
+                return None;
+            }
+        };
 
-        let result = (|| -> Option<String> {            // 方法 1: 尝试解析 .lnk 文件获取 IconLocation
-            // 使用 PowerShell 快速获取 IconLocation 和 TargetPath（这部分很快，只是读取元数据）
-            let (icon_source_path, icon_index) = match get_lnk_icon_location(lnk_path) {
-                Some(result) => {
-                    // #region agent log
-                    eprintln!("[LNK图标Native] get_lnk_icon_location 成功: lnk_path={}, icon_source_path={}, icon_index={}", 
-                        lnk_path_str, result.0.to_string_lossy(), result.1);
-                    // #endregion
-                    result
-                },
-                None => {
-                    // #region agent log
-                    eprintln!("[LNK图标Native] get_lnk_icon_location 失败: lnk_path={}", lnk_path_str);
-                    // #endregion
+        let icon_source_path_str = icon_source_path.to_string_lossy().to_string();
+        
+        // 检查是否是 shell:AppsFolder 路径（UWP 应用）
+        if icon_source_path_str.to_lowercase().starts_with("shell:appsfolder\\") {
+            eprintln!("[LNK图标Native] 检测到 shell:AppsFolder 路径，使用 UWP 图标提取: path={}", icon_source_path_str);
+            if let Some(result) = extract_uwp_app_icon_base64(&icon_source_path_str) {
+                eprintln!("[LNK图标Native] UWP 图标提取成功: path={}", icon_source_path_str);
+                return Some(result);
+            }
+        }
+        
+        let result = (|| -> Option<String> {
+            // 回退方案: 从目标文件提取
+            if let Some(result) = extract_icon_png_via_shell(&icon_source_path, 32) {
+                eprintln!("[LNK图标Native] IShellItemImageFactory 成功 (从目标文件): icon_source_path={}", icon_source_path_str);
+                return Some(result);
+            }
+            
+            // 回退方案: 使用 ExtractIconExW + icon_to_png
+            use std::ffi::OsStr;
+            use std::os::windows::ffi::OsStrExt;
+            use windows_sys::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
+            use windows_sys::Win32::UI::Shell::ExtractIconExW;
+            use windows_sys::Win32::UI::WindowsAndMessaging::DestroyIcon;
+            
+            // 初始化 COM（用于 ExtractIconExW）
+            unsafe {
+                let hr = CoInitializeEx(std::ptr::null_mut(), COINIT_APARTMENTTHREADED as u32);
+                if hr < 0 && hr != 0x00000001 {
+                    eprintln!("[LNK图标Native] CoInitializeEx 失败: hr=0x{:08X}", hr);
                     return None;
                 }
-            };
-
-            // 使用 ExtractIconExW 从目标文件提取图标
+            }
+            
+            // 使用 ExtractIconExW 提取图标
             let icon_source_wide: Vec<u16> = OsStr::new(&icon_source_path)
                 .encode_wide()
                 .chain(Some(0))
                 .collect();
             
-            let icon_source_path_str = icon_source_path.to_string_lossy().to_string();
-            
-            unsafe {
+            // 尝试使用指定索引提取图标
+            let mut fallback_result = unsafe {
                 let mut large_icons: [isize; 1] = [0; 1];
                 let count = ExtractIconExW(
                     icon_source_wide.as_ptr(),
@@ -1792,31 +2125,29 @@ try {
                     1,
                 );
 
-                // #region agent log
-                eprintln!("[LNK图标Native] ExtractIconExW 调用: lnk_path={}, icon_source_path={}, icon_index={}, count={}, icon_handle={}", 
-                    lnk_path_str, icon_source_path_str, icon_index, count, large_icons[0]);
-                // #endregion
+                eprintln!("[LNK图标Native] ExtractIconExW 调用: icon_source_path={}, icon_index={}, count={}, icon_handle={}", 
+                    icon_source_path_str, icon_index, count, large_icons[0]);
 
                 if count > 0 && large_icons[0] != 0 {
                     if let Some(png_data) = icon_to_png(large_icons[0]) {
-                        // #region agent log
-                        eprintln!("[LNK图标Native] icon_to_png 成功: lnk_path={}, icon_source_path={}, png_len={}", 
-                            lnk_path_str, icon_source_path_str, png_data.len());
-                        // #endregion
-                        // 清理图标句柄
+                        eprintln!("[LNK图标Native] icon_to_png 成功: icon_source_path={}, png_len={}", 
+                            icon_source_path_str, png_data.len());
                         DestroyIcon(large_icons[0]);
-                        return Some(format!("data:image/png;base64,{}", png_data));
+                        // 返回纯 base64 字符串，不带 data:image/png;base64, 前缀
+                        Some(png_data)
+                    } else {
+                        eprintln!("[LNK图标Native] icon_to_png 失败: icon_source_path={}", icon_source_path_str);
+                        DestroyIcon(large_icons[0]);
+                        None
                     }
-                    // #region agent log
-                    eprintln!("[LNK图标Native] icon_to_png 失败: lnk_path={}, icon_source_path={}", 
-                        lnk_path_str, icon_source_path_str);
-                    // #endregion
-                    // 清理图标句柄
-                    DestroyIcon(large_icons[0]);
+                } else {
+                    None
                 }
-
-                // 如果指定索引失败，尝试索引 0
-                if icon_index != 0 {
+            };
+            
+            // 如果指定索引失败，尝试索引 0
+            if fallback_result.is_none() && icon_index != 0 {
+                fallback_result = unsafe {
                     let mut large_icons: [isize; 1] = [0; 1];
                     let count = ExtractIconExW(
                         icon_source_wide.as_ptr(),
@@ -1826,44 +2157,484 @@ try {
                         1,
                     );
 
-                    // #region agent log
-                    eprintln!("[LNK图标Native] ExtractIconExW 重试索引0: lnk_path={}, icon_source_path={}, count={}, icon_handle={}", 
-                        lnk_path_str, icon_source_path_str, count, large_icons[0]);
-                    // #endregion
+                    eprintln!("[LNK图标Native] ExtractIconExW 重试索引0: icon_source_path={}, count={}, icon_handle={}", 
+                        icon_source_path_str, count, large_icons[0]);
 
                     if count > 0 && large_icons[0] != 0 {
                         if let Some(png_data) = icon_to_png(large_icons[0]) {
-                            // #region agent log
-                            eprintln!("[LNK图标Native] icon_to_png 成功(重试): lnk_path={}, icon_source_path={}, png_len={}", 
-                                lnk_path_str, icon_source_path_str, png_data.len());
-                            // #endregion
+                            eprintln!("[LNK图标Native] icon_to_png 成功(重试): icon_source_path={}, png_len={}", 
+                                icon_source_path_str, png_data.len());
                             DestroyIcon(large_icons[0]);
-                            return Some(format!("data:image/png;base64,{}", png_data));
+                            // 返回纯 base64 字符串，不带 data:image/png;base64, 前缀
+                            Some(png_data)
+                        } else {
+                            DestroyIcon(large_icons[0]);
+                            None
                         }
-                        DestroyIcon(large_icons[0]);
+                    } else {
+                        None
                     }
-                }
+                };
+            }
+            
+            // 清理 COM
+            unsafe {
+                CoUninitialize();
+            }
+            
+            if let Some(result) = fallback_result {
+                return Some(result);
             }
 
-            // #region agent log
-            eprintln!("[LNK图标Native] 提取失败，返回 None: lnk_path={}", lnk_path_str);
-            // #endregion
+            eprintln!("[LNK图标Native] 所有方法都失败: lnk_path={}", lnk_path_str);
             None
         })();
 
-        // 清理 COM
-        unsafe {
-            CoUninitialize();
-        }
-
-        // #region agent log
         let success = result.is_some();
         let icon_len = result.as_ref().map(|s| s.len()).unwrap_or(0);
         eprintln!("[LNK图标Native] 最终结果: lnk_path={}, success={}, icon_len={}", 
             lnk_path_str, success, icon_len);
-        // #endregion
 
         result
+    }
+    
+    /// 获取 .lnk 文件的所有路径信息（IconLocation 和 TargetPath）
+    fn get_lnk_all_paths(lnk_path: &Path) -> Option<(Option<(PathBuf, i32)>, Option<String>)> {
+        use std::fs::File;
+        use std::io::{Read, Seek, SeekFrom};
+        
+        let mut file = match File::open(lnk_path) {
+            Ok(f) => f,
+            Err(_) => return None,
+        };
+        
+        // 读取 Shell Link Header (76 bytes)
+        let mut header = [0u8; 76];
+        if file.read_exact(&mut header).is_err() {
+            return None;
+        }
+        
+        // 验证 Shell Link Header Signature (0x0000004C)
+        if u32::from_le_bytes([header[0], header[1], header[2], header[3]]) != 0x0000004C {
+            return None;
+        }
+        
+        // LinkFlags (offset 0x14, 4 bytes)
+        let link_flags = u32::from_le_bytes([header[20], header[21], header[22], header[23]]);
+        
+        // 读取 LinkTargetIDList (如果存在)
+        let mut offset: u64 = 76;
+        if link_flags & 0x01 != 0 {
+            let mut idlist_size_buf = [0u8; 2];
+            if file.seek(SeekFrom::Start(offset)).is_err() || file.read_exact(&mut idlist_size_buf).is_err() {
+                return None;
+            }
+            let idlist_size = u16::from_le_bytes(idlist_size_buf) as u64;
+            offset += 2 + idlist_size;
+        }
+        
+        // 读取并解析 LinkInfo (如果存在)
+        let mut linkinfo_path: Option<String> = None;
+        if link_flags & 0x02 != 0 {
+            if file.seek(SeekFrom::Start(offset)).is_err() {
+                return None;
+            }
+            let mut linkinfo_size_buf = [0u8; 4];
+            if file.read_exact(&mut linkinfo_size_buf).is_err() {
+                return None;
+            }
+            let linkinfo_size = u32::from_le_bytes(linkinfo_size_buf) as u64;
+            offset += linkinfo_size;
+        }
+        
+        // 读取 StringData 部分
+        let mut target_path: Option<String> = linkinfo_path;
+        let mut icon_location: Option<String> = None;
+        let mut icon_index: i32 = 0;
+        
+        let stringdata_start = offset;
+        if file.seek(SeekFrom::Start(offset)).is_err() {
+            return None;
+        }
+        
+        // 读取 IconLocation (如果存在，HasIconLocation = 0x20)
+        if link_flags & 0x20 != 0 {
+            let icon_location_str = read_length_prefixed_string_utf16(&mut file);
+            if let Some(mut icon_loc) = icon_location_str {
+                icon_loc = icon_loc.chars()
+                    .filter(|c| !c.is_control() || *c == '\n' || *c == '\r')
+                    .collect::<String>();
+                
+                // IconLocation 格式通常是 "path,index"
+                if let Some(comma_pos) = icon_loc.rfind(',') {
+                    let (path_part, index_part) = icon_loc.split_at(comma_pos);
+                    let clean_path = path_part.trim().to_string();
+                    if let Ok(idx) = index_part[1..].trim().parse::<i32>() {
+                        icon_index = idx;
+                        icon_location = Some(clean_path);
+                    } else {
+                        icon_location = Some(icon_loc);
+                    }
+                } else {
+                    icon_location = Some(icon_loc);
+                }
+            }
+        }
+        
+        // 读取 WorkingDir (如果存在，HasWorkingDir = 0x10)
+        if link_flags & 0x10 != 0 {
+            let _ = read_length_prefixed_string_utf16(&mut file);
+        }
+        
+        // 读取 TargetPath (如果 LinkInfo 不存在，或者作为备用)
+        if link_flags & 0x02 == 0 {
+            let current_pos = file.seek(SeekFrom::Current(0)).ok();
+            if let Some(pos) = current_pos {
+                if file.seek(SeekFrom::Start(pos)).is_ok() {
+                    let target_path_str = read_length_prefixed_string_utf16(&mut file);
+                    if target_path.is_none() {
+                        target_path = target_path_str;
+                    }
+                }
+            }
+        }
+        
+        // 处理 IconLocation
+        let icon_location_result = if let Some(ref icon_path_str) = icon_location {
+            let expanded_path = expand_env_path(icon_path_str);
+            let icon_path = PathBuf::from(&expanded_path);
+            if icon_path.exists() {
+                Some((icon_path, icon_index))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        
+        // 处理 TargetPath
+        let target_path_str = target_path.map(|s| expand_env_path(&s));
+        
+        Some((icon_location_result, target_path_str))
+    }
+    
+    /// 测试所有图标提取方法，返回每种方法的结果
+    /// 用于调试和比较不同提取方法的效果
+    pub fn test_all_icon_extraction_methods(lnk_path: &Path) -> Vec<(String, Option<String>)> {
+        let mut results: Vec<(String, Option<String>)> = Vec::new();
+        let lnk_path_str = lnk_path.to_string_lossy().to_string();
+        
+        eprintln!("[测试图标提取] 开始测试所有方法: lnk_path={}", lnk_path_str);
+        
+        // 1. 解析 .lnk 文件获取 IconLocation 和 TargetPath
+        let (icon_location_info, target_path_str) = match get_lnk_all_paths(lnk_path) {
+            Some(result) => {
+                if let Some(ref icon_loc) = result.0 {
+                    eprintln!("[测试图标提取] IconLocation: path={}, index={}", 
+                        icon_loc.0.to_string_lossy(), icon_loc.1);
+                }
+                if let Some(ref target) = result.1 {
+                    eprintln!("[测试图标提取] TargetPath: path={}", target);
+                }
+                result
+            },
+            None => {
+                eprintln!("[测试图标提取] 解析LNK文件失败");
+                results.push(("解析LNK文件".to_string(), None));
+                return results;
+            }
+        };
+        
+        // 2. 测试从 IconLocation 提取（如果存在）
+        if let Some((icon_path, icon_index)) = &icon_location_info {
+            let icon_path_str = icon_path.to_string_lossy().to_string();
+            eprintln!("[测试图标提取] 从 IconLocation 提取: path={}, index={}", icon_path_str, icon_index);
+            
+            // 2.1 Shell API
+            if let Some(result) = extract_icon_png_via_shell(icon_path, 32) {
+                results.push((format!("IconLocation -> Shell API (索引 {})", icon_index), Some(result)));
+            } else {
+                results.push((format!("IconLocation -> Shell API (索引 {})", icon_index), None));
+            }
+            
+            // 2.2 ExtractIconExW
+            use std::ffi::OsStr;
+            use std::os::windows::ffi::OsStrExt;
+            use windows_sys::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
+            use windows_sys::Win32::UI::Shell::ExtractIconExW;
+            use windows_sys::Win32::UI::WindowsAndMessaging::DestroyIcon;
+            
+            unsafe {
+                let hr = CoInitializeEx(std::ptr::null_mut(), COINIT_APARTMENTTHREADED as u32);
+                if hr >= 0 || hr == 0x00000001 {
+                    let icon_source_wide: Vec<u16> = OsStr::new(icon_path)
+                        .encode_wide()
+                        .chain(Some(0))
+                        .collect();
+                    
+                    let mut large_icons: [isize; 1] = [0; 1];
+                    let count = ExtractIconExW(
+                        icon_source_wide.as_ptr(),
+                        *icon_index as i32,
+                        large_icons.as_mut_ptr(),
+                        std::ptr::null_mut(),
+                        1,
+                    );
+                    
+                    if count > 0 && large_icons[0] != 0 {
+                        if let Some(png_data) = icon_to_png(large_icons[0]) {
+                            // 返回纯 base64 字符串，不带 data:image/png;base64, 前缀
+                            results.push((format!("IconLocation -> ExtractIconExW (索引 {})", icon_index), Some(png_data)));
+                            DestroyIcon(large_icons[0]);
+                        } else {
+                            results.push((format!("IconLocation -> ExtractIconExW (索引 {})", icon_index), None));
+                            DestroyIcon(large_icons[0]);
+                        }
+                    } else {
+                        results.push((format!("IconLocation -> ExtractIconExW (索引 {})", icon_index), None));
+                    }
+                    
+                    CoUninitialize();
+                }
+            }
+        }
+        
+        // 3. 测试从 TargetPath 提取（如果存在）
+        if let Some(ref target_path_str) = target_path_str {
+            eprintln!("[测试图标提取] 从 TargetPath 提取: path={}", target_path_str);
+            
+            // 3.1 测试 UWP 方法（如果 TargetPath 是 shell:AppsFolder）
+            if target_path_str.to_lowercase().starts_with("shell:appsfolder\\") {
+                eprintln!("[测试图标提取] 测试 UWP 方法: path={}", target_path_str);
+                if let Some(result) = extract_uwp_app_icon_base64(target_path_str) {
+                    results.push(("TargetPath -> UWP方法 (shell:AppsFolder)".to_string(), Some(result)));
+                } else {
+                    results.push(("TargetPath -> UWP方法 (shell:AppsFolder)".to_string(), None));
+                }
+            }
+            
+            // 3.2 测试 Shell API（如果 TargetPath 是文件路径）
+            let target_path_buf = PathBuf::from(target_path_str);
+            if target_path_buf.exists() {
+                if let Some(result) = extract_icon_png_via_shell(&target_path_buf, 32) {
+                    results.push(("TargetPath -> Shell API".to_string(), Some(result)));
+                } else {
+                    results.push(("TargetPath -> Shell API".to_string(), None));
+                }
+            }
+        }
+        
+        // 4. 测试直接从 .lnk 文件本身提取（使用 Shell API）
+        eprintln!("[测试图标提取] 测试直接从 .lnk 文件提取: path={}", lnk_path_str);
+        // 尝试多次重试，确保与实际提取函数一致
+        let mut direct_lnk_result = None;
+        for retry in 0..3 {
+            if let Some(result) = extract_icon_png_via_shell(lnk_path, 32) {
+                eprintln!("[测试图标提取] 直接从 .lnk 文件提取成功: path={}, retry={}, icon_len={}", 
+                    lnk_path_str, retry, result.len());
+                direct_lnk_result = Some(result);
+                break;
+            } else {
+                eprintln!("[测试图标提取] 直接从 .lnk 文件提取失败 (重试 {}): path={}", retry, lnk_path_str);
+                if retry < 2 {
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
+            }
+        }
+        if let Some(result) = direct_lnk_result {
+            results.push(("直接从 .lnk 文件 -> Shell API".to_string(), Some(result)));
+        } else {
+            results.push(("直接从 .lnk 文件 -> Shell API".to_string(), None));
+        }
+        
+        // 5. 测试 SHGetFileInfoW 方法（如果 TargetPath 存在）
+        if let Some(ref target_path_str) = target_path_str {
+            if !target_path_str.to_lowercase().starts_with("shell:appsfolder\\") {
+                let target_path_buf = PathBuf::from(target_path_str);
+                if target_path_buf.exists() {
+                    eprintln!("[测试图标提取] 测试 SHGetFileInfoW 方法: path={}", target_path_str);
+                    if let Some(result) = extract_icon_via_shgetfileinfo(&target_path_buf) {
+                        results.push(("TargetPath -> SHGetFileInfoW".to_string(), Some(result)));
+                    } else {
+                        results.push(("TargetPath -> SHGetFileInfoW".to_string(), None));
+                    }
+                }
+            }
+        }
+        
+        // 6. 测试 SHGetFileInfoW 方法（如果 IconLocation 存在）
+        if let Some((icon_path, _)) = &icon_location_info {
+            eprintln!("[测试图标提取] 测试 SHGetFileInfoW 方法 (IconLocation): path={}", icon_path.to_string_lossy());
+            if let Some(result) = extract_icon_via_shgetfileinfo(icon_path) {
+                results.push(("IconLocation -> SHGetFileInfoW".to_string(), Some(result)));
+            } else {
+                results.push(("IconLocation -> SHGetFileInfoW".to_string(), None));
+            }
+        }
+        
+        // 7. 测试 PowerShell 方法（作为参考）
+        eprintln!("[测试图标提取] 测试 PowerShell 方法: path={}", lnk_path_str);
+        let ps_result = extract_lnk_icon_base64(lnk_path);
+        results.push(("PowerShell方法 (fallback)".to_string(), ps_result));
+        
+        eprintln!("[测试图标提取] 测试完成，共 {} 种方法", results.len());
+        results
+    }
+    
+    /// 使用 SHGetFileInfoW 提取图标
+    fn extract_icon_via_shgetfileinfo(file_path: &Path) -> Option<String> {
+        use std::ffi::OsStr;
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::UI::WindowsAndMessaging::DestroyIcon;
+        
+        let path_wide: Vec<u16> = OsStr::new(file_path)
+            .encode_wide()
+            .chain(Some(0))
+            .collect();
+        
+        unsafe {
+            // 定义 SHFILEINFOW 结构体
+            #[repr(C)]
+            struct SHFILEINFOW {
+                h_icon: isize,
+                i_icon: i32,
+                dw_attributes: u32,
+                sz_display_name: [u16; 260],
+                sz_type_name: [u16; 80],
+            }
+            
+            // 定义 SHGetFileInfoW 函数签名
+            #[link(name = "shell32")]
+            extern "system" {
+                fn SHGetFileInfoW(
+                    psz_path: *const u16,
+                    dw_file_attributes: u32,
+                    psfi: *mut SHFILEINFOW,
+                    cb_size_file_info: u32,
+                    u_flags: u32,
+                ) -> isize;
+            }
+            
+            // 标志常量
+            const SHGFI_ICON: u32 = 0x100;
+            const SHGFI_LARGEICON: u32 = 0x0;
+            
+            let mut shfi = SHFILEINFOW {
+                h_icon: 0,
+                i_icon: 0,
+                dw_attributes: 0,
+                sz_display_name: [0; 260],
+                sz_type_name: [0; 80],
+            };
+            
+            // 调用 SHGetFileInfoW 获取图标
+            let result = SHGetFileInfoW(
+                path_wide.as_ptr(),
+                0,
+                &mut shfi,
+                std::mem::size_of::<SHFILEINFOW>() as u32,
+                SHGFI_ICON | SHGFI_LARGEICON,
+            );
+            
+            if result != 0 && shfi.h_icon != 0 {
+                if let Some(png_data) = icon_to_png(shfi.h_icon) {
+                    DestroyIcon(shfi.h_icon);
+                    Some(png_data)
+                } else {
+                    DestroyIcon(shfi.h_icon);
+                    None
+                }
+            } else {
+                None
+            }
+        }
+    }
+    
+    // 测试函数：验证图标提取功能
+    // 输入 .lnk 路径与 .exe 路径各一个，输出 base64 PNG，校验：PNG byte length > 1000 且非零像素数 > 0
+    #[cfg(test)]
+    pub fn test_icon_extraction(lnk_path: &str, exe_path: &str) -> Result<(bool, bool), String> {
+        use std::path::Path;
+        
+        let lnk_result = Path::new(lnk_path)
+            .try_exists()
+            .map_err(|e| format!("无法访问 .lnk 文件: {}", e))?;
+        
+        if !lnk_result {
+            return Err(format!(".lnk 文件不存在: {}", lnk_path));
+        }
+        
+        let exe_result = Path::new(exe_path)
+            .try_exists()
+            .map_err(|e| format!("无法访问 .exe 文件: {}", e))?;
+        
+        if !exe_result {
+            return Err(format!(".exe 文件不存在: {}", exe_path));
+        }
+        
+        // 测试 .lnk 文件图标提取
+        let lnk_icon = extract_lnk_icon_base64_native(Path::new(lnk_path));
+        let lnk_success = if let Some(icon_data) = lnk_icon {
+            // 解码 base64 获取 PNG 数据
+            let png_bytes = base64::engine::general_purpose::STANDARD
+                .decode(icon_data.strip_prefix("data:image/png;base64,").unwrap_or(&icon_data))
+                .map_err(|e| format!("解码 base64 失败: {}", e))?;
+            
+            // 验证 PNG 数据长度
+            if png_bytes.len() < 1000 {
+                eprintln!("[测试] .lnk 图标 PNG 数据长度过小: {} 字节", png_bytes.len());
+                false
+            } else {
+                // 解析 PNG 检查非零像素
+                let decoder = png::Decoder::new(png_bytes.as_slice());
+                let mut reader = decoder.read_info().map_err(|e| format!("解析 PNG 失败: {}", e))?;
+                let mut buf = vec![0; reader.output_buffer_size()];
+                let info = reader.next_frame(&mut buf).map_err(|e| format!("读取 PNG 帧失败: {}", e))?;
+                
+                let non_zero_pixels = buf.chunks_exact(4)
+                    .filter(|chunk| chunk.iter().any(|&b| b != 0))
+                    .count();
+                
+                eprintln!("[测试] .lnk 图标: PNG长度={}, 非零像素={}", png_bytes.len(), non_zero_pixels);
+                non_zero_pixels > 0
+            }
+        } else {
+            eprintln!("[测试] .lnk 图标提取失败");
+            false
+        };
+        
+        // 测试 .exe 文件图标提取
+        let exe_icon = extract_exe_icon_base64_native(Path::new(exe_path));
+        let exe_success = if let Some(icon_data) = exe_icon {
+            // 解码 base64 获取 PNG 数据
+            let png_bytes = base64::engine::general_purpose::STANDARD
+                .decode(icon_data.strip_prefix("data:image/png;base64,").unwrap_or(&icon_data))
+                .map_err(|e| format!("解码 base64 失败: {}", e))?;
+            
+            // 验证 PNG 数据长度
+            if png_bytes.len() < 1000 {
+                eprintln!("[测试] .exe 图标 PNG 数据长度过小: {} 字节", png_bytes.len());
+                false
+            } else {
+                // 解析 PNG 检查非零像素
+                let decoder = png::Decoder::new(png_bytes.as_slice());
+                let mut reader = decoder.read_info().map_err(|e| format!("解析 PNG 失败: {}", e))?;
+                let mut buf = vec![0; reader.output_buffer_size()];
+                let info = reader.next_frame(&mut buf).map_err(|e| format!("读取 PNG 帧失败: {}", e))?;
+                
+                let non_zero_pixels = buf.chunks_exact(4)
+                    .filter(|chunk| chunk.iter().any(|&b| b != 0))
+                    .count();
+                
+                eprintln!("[测试] .exe 图标: PNG长度={}, 非零像素={}", png_bytes.len(), non_zero_pixels);
+                non_zero_pixels > 0
+            }
+        } else {
+            eprintln!("[测试] .exe 图标提取失败");
+            false
+        };
+        
+        Ok((lnk_success, exe_success))
     }
 
     // 辅助函数：将位图句柄转换为 PNG base64 字符串（暂时未使用）
@@ -1933,13 +2704,17 @@ try {
 
             let old_bitmap = SelectObject(hdc, hbitmap);
 
-            // 不填充背景，保持图标的透明度
-            // 注释掉白色背景填充，让图标保持原始透明度
-            // use windows_sys::Win32::Graphics::Gdi::{PatBlt, WHITENESS};
-            // PatBlt(hdc, 0, 0, icon_size as i32, icon_size as i32, WHITENESS);
+            // 初始化位图数据为完全透明（alpha=0）
+            // 这确保 DrawIconEx 能够正确绘制到透明背景上
+            if !bits_ptr.is_null() {
+                let size = (icon_size * icon_size * 4) as usize;
+                unsafe {
+                    std::ptr::write_bytes(bits_ptr, 0, size);
+                }
+            }
 
             // 绘制图标到位图
-            DrawIconEx(
+            let draw_result = DrawIconEx(
                 hdc,
                 0,
                 0,
@@ -1950,6 +2725,8 @@ try {
                 0, // 可选的图标句柄，NULL 时使用 0
                 DI_NORMAL,
             );
+            
+            eprintln!("[icon_to_png] DrawIconEx 结果: success={}", draw_result != 0);
 
             // 读取位图数据
             let mut bitmap = BITMAP {
@@ -1979,6 +2756,23 @@ try {
             ReleaseDC(0, hdc_screen);
 
             if lines_written == 0 {
+                eprintln!("[icon_to_png] GetDIBits 失败: lines_written=0");
+                return None;
+            }
+
+            // 检查位图数据是否包含有效内容（不全为 0）
+            let total_pixels = icon_size * icon_size;
+            let non_zero_pixels = dib_bits.chunks_exact(4)
+                .filter(|chunk| chunk.iter().any(|&b| b != 0))
+                .count();
+            
+            eprintln!("[icon_to_png] 位图数据检查: 总像素={}, 非零像素={}, 非零比例={:.2}%", 
+                total_pixels, non_zero_pixels, 
+                (non_zero_pixels as f32 / total_pixels as f32) * 100.0);
+
+            // 如果所有像素都是 0，说明图标没有正确绘制
+            if non_zero_pixels == 0 {
+                eprintln!("[icon_to_png] 警告: 所有像素都是 0，图标可能没有正确绘制");
                 return None;
             }
 
@@ -2001,6 +2795,16 @@ try {
                 encoder.set_depth(png::BitDepth::Eight);
                 let mut writer = encoder.write_header().ok()?;
                 writer.write_image_data(&dib_bits).ok()?;
+            }
+
+            eprintln!("[icon_to_png] PNG 编码完成: png_data_len={}, base64_len={}", 
+                png_data.len(), 
+                base64::engine::general_purpose::STANDARD.encode(&png_data).len());
+
+            // 验证 PNG 数据长度（一个有效的 32x32 RGBA PNG 应该至少有几百字节）
+            if png_data.len() < 200 {
+                eprintln!("[icon_to_png] 警告: PNG 数据长度过小 ({} 字节)，可能提取失败", png_data.len());
+                return None;
             }
 
             // 编码为 base64
@@ -2058,6 +2862,10 @@ try {
             (
                 "{1ac14e77-02e7-4e5d-b744-2eb1ae5198b7}", // FOLDERID_System (System32)
                 env::var("WINDIR").map(|w| format!("{}\\System32", w)).unwrap_or_else(|_| "C:\\Windows\\System32".to_string()),
+            ),
+            (
+                "{d65231b0-b2f1-4857-a4ce-a8e7c6ea7d27}", // FOLDERID_SystemX86 (SysWOW64)
+                env::var("WINDIR").map(|w| format!("{}\\SysWOW64", w)).unwrap_or_else(|_| "C:\\Windows\\SysWOW64".to_string()),
             ),
         ];
 
@@ -2307,30 +3115,42 @@ try {
                     }
                 }
             }
-        }        // 优先使用 TargetPath（如果存在且有效），否则使用 IconLocation
-        if let Some(ref target_path_str) = target_path {
-            let expanded_path = expand_env_path(target_path_str);
-            let target_path_buf = PathBuf::from(&expanded_path);            // 如果 TargetPath 存在且是文件，优先使用它
-            if target_path_buf.exists() && target_path_buf.is_file() {
-                return Some((target_path_buf, 0));
-            }
-        }
-        
-        // 如果 TargetPath 不存在或无效，尝试使用 IconLocation
+        }        
+        // 优先使用 IconLocation（如果存在），因为它通常指向正确的图标源文件
+        // 对于系统文件夹快捷方式（如 Administrative Tools），IconLocation 通常指向 imageres.dll 或 shell32.dll
         if let Some(ref icon_path_str) = icon_location {
             let expanded_path = expand_env_path(icon_path_str);
-            let icon_path = PathBuf::from(&expanded_path);            return Some((icon_path, icon_index));
+            let expanded_path = expand_known_folder_guid(&expanded_path);
+            let icon_path = PathBuf::from(&expanded_path);
+            // 如果 IconLocation 指向的文件存在，优先使用它
+            if icon_path.exists() {
+                eprintln!("[get_lnk_icon_location] 使用 IconLocation: path={}, index={}", 
+                    icon_path.to_string_lossy(), icon_index);
+                return Some((icon_path, icon_index));
+            }
         }
         
-        // 如果 IconLocation 也不存在，但 TargetPath 存在（即使是目录），也返回它
+        // 如果 IconLocation 不存在或无效，尝试使用 TargetPath
         if let Some(ref target_path_str) = target_path {
-            let expanded_path = expand_env_path(target_path_str);
-            let target_path_buf = PathBuf::from(&expanded_path);
+            // 检查是否是 shell:AppsFolder 路径（UWP 应用）
+            // 这种路径不需要检查文件是否存在，直接返回即可
+            if target_path_str.to_lowercase().starts_with("shell:appsfolder\\") {
+                eprintln!("[get_lnk_icon_location] 使用 TargetPath (shell:AppsFolder): path={}", target_path_str);
+                return Some((PathBuf::from(target_path_str), 0));
+            }
             
-            if target_path_buf.exists() {
+            let expanded_path = expand_env_path(target_path_str);
+            let expanded_path = expand_known_folder_guid(&expanded_path);
+            let target_path_buf = PathBuf::from(&expanded_path);
+            // 只有当 TargetPath 是文件时才使用它（避免使用系统文件夹路径）
+            if target_path_buf.exists() && target_path_buf.is_file() {
+                eprintln!("[get_lnk_icon_location] 使用 TargetPath (文件): path={}", 
+                    target_path_buf.to_string_lossy());
                 return Some((target_path_buf, 0));
             }
-        }        None
+        }
+        
+        None
     }
     
     // 辅助函数：从文件中读取带长度前缀的 UTF-16 字符串（StringData 格式）
@@ -2550,8 +3370,8 @@ public class IconExtractor {
             // 创建支持透明度的位图（Format32bppArgb 支持 alpha 通道）
             Bitmap resized = new Bitmap(32, 32, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
             using (Graphics g = Graphics.FromImage(resized)) {
-                // 不填充背景，保持图标的透明度
-                // g.Clear(Color.White); // 注释掉白色背景填充
+                // 清除为完全透明（alpha=0），确保位图被正确初始化
+                g.Clear(Color.Transparent);
                 g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
                 g.DrawImage(bitmap, 0, 0, 32, 32);
             }
@@ -2618,7 +3438,9 @@ public class IconExtractor {
         if output.status.success() {
             let base64 = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if !base64.is_empty() && base64.len() > 100 {
-                return Some(format!("data:image/png;base64,{}", base64));
+                // 返回纯 base64 字符串，不带 data:image/png;base64, 前缀
+                // 前端会统一添加前缀
+                return Some(base64);
             }
         }
         None

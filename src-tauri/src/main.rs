@@ -604,6 +604,7 @@ fn main() {
             remove_app_from_index,
             debug_app_icon,
             extract_icon_from_path,
+            test_all_icon_extraction_methods,
             toggle_launcher,
             hide_launcher,
             add_file_to_history,
