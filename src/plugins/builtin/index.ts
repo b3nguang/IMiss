@@ -239,6 +239,35 @@ export function createBuiltinPlugins(): Plugin[] {
         }
       },
     },
+    {
+      id: "hex_converter",
+      name: "ASCII 十六进制转换器",
+      description: "ASCII 文本与十六进制相互转换工具",
+      keywords: [
+        "ASCII",
+        "十六进制",
+        "hex",
+        "转换",
+        "converter",
+        "shiliujinzhi",
+        "sljjz",
+        "zhuanhuan",
+        "zh",
+        "ascii转hex",
+        "hex转ascii",
+        "hex转换器",
+        "ascii",
+        "hexadecimal",
+      ],
+      execute: async (context) => {
+        // 打开独立的 ASCII 十六进制转换器窗口
+        if (context.tauriApi) {
+          await context.tauriApi.showHexConverterWindow();
+          // 关闭启动器
+          await context.hideLauncher();
+        }
+      },
+    },
   ];
 }
 

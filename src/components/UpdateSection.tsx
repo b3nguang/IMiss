@@ -13,6 +13,7 @@ export function UpdateSection({ currentVersion }: UpdateSectionProps) {
   const [autoCheckCompleted, setAutoCheckCompleted] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
+  const [ignoredVersion, setIgnoredVersion] = useState<string | null>(null);
 
   // 页面加载时自动检查更新
   useEffect(() => {
@@ -22,8 +23,10 @@ export function UpdateSection({ currentVersion }: UpdateSectionProps) {
         const result = await tauriApi.checkUpdate();
         
         // 检查是否已忽略此版本
-        const ignoredVersion = localStorage.getItem("ignored_update_version");
-        if (ignoredVersion === result.latest_version) {
+        const ignored = localStorage.getItem("ignored_update_version");
+        setIgnoredVersion(ignored);
+        
+        if (ignored === result.latest_version) {
           setUpdateInfo({ ...result, has_update: false });
         } else {
           setUpdateInfo(result);
@@ -72,8 +75,10 @@ export function UpdateSection({ currentVersion }: UpdateSectionProps) {
       const result = await tauriApi.checkUpdate();
       
       // 检查是否已忽略此版本
-      const ignoredVersion = localStorage.getItem("ignored_update_version");
-      if (ignoredVersion === result.latest_version) {
+      const ignored = localStorage.getItem("ignored_update_version");
+      setIgnoredVersion(ignored);
+      
+      if (ignored === result.latest_version) {
         setUpdateInfo({ ...result, has_update: false });
       } else {
         setUpdateInfo(result);
@@ -133,8 +138,17 @@ export function UpdateSection({ currentVersion }: UpdateSectionProps) {
   const handleIgnoreVersion = () => {
     if (updateInfo) {
       localStorage.setItem("ignored_update_version", updateInfo.latest_version);
+      setIgnoredVersion(updateInfo.latest_version);
       setUpdateInfo({ ...updateInfo, has_update: false });
     }
+  };
+
+  const handleUnignoreVersion = async () => {
+    // 清除忽略的版本
+    localStorage.removeItem("ignored_update_version");
+    setIgnoredVersion(null);
+    // 重新检查更新
+    await handleCheckUpdate();
   };
 
   // 格式化日期
@@ -162,6 +176,32 @@ export function UpdateSection({ currentVersion }: UpdateSectionProps) {
 
   return (
     <div className="space-y-4">
+      {/* 忽略版本提示 */}
+      {ignoredVersion && updateInfo?.latest_version === ignoredVersion && (
+        <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3 flex-1">
+              <div className="text-xl">🔕</div>
+              <div className="flex-1">
+                <p className="text-sm font-medium text-yellow-800 mb-1">
+                  已忽略版本 {ignoredVersion}
+                </p>
+                <p className="text-xs text-yellow-700">
+                  您已选择忽略此版本的更新提醒。如需查看此版本的更新内容，可以点击右侧按钮取消忽略。
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={handleUnignoreVersion}
+              disabled={isChecking}
+              className="px-3 py-1.5 text-xs font-medium text-yellow-700 border border-yellow-400 rounded-md hover:bg-yellow-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+            >
+              取消忽略
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* 更新检查状态提示 */}
       {isChecking && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-center gap-3">

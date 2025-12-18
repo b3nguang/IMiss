@@ -395,6 +395,10 @@ export const tauriApi = {
     return invoke("show_translation_window");
   },
 
+  async showHexConverterWindow(): Promise<void> {
+    return invoke("show_hex_converter_window");
+  },
+
   async previewFileReplace(params: {
     folderPath: string;
     searchText: string;

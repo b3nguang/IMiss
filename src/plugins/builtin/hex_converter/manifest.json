@@ -1,0 +1,24 @@
+{
+  "id": "hex_converter",
+  "name": "ASCII 十六进制转换器",
+  "version": "1.0.0",
+  "description": "ASCII 文本与十六进制相互转换工具",
+  "keywords": [
+    "ASCII",
+    "十六进制",
+    "hex",
+    "转换",
+    "converter",
+    "shiliujinzhi",
+    "sljjz",
+    "zhuanhuan",
+    "zh",
+    "ascii转hex",
+    "hex转ascii",
+    "hex转换器",
+    "ascii",
+    "hexadecimal"
+  ],
+  "entry": "./index.ts",
+  "enabled": true
+}
