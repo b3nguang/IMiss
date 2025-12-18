@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useEscapeKey } from "../hooks/useEscapeKey";
 
 type ConversionMode = "ascii-to-hex" | "hex-to-ascii";
 
@@ -18,6 +19,13 @@ export function HexConverterWindow() {
     // 设置窗口标题
     currentWindow.setTitle("ASCII 十六进制转换器");
   }, [currentWindow]);
+
+  // Esc 键关闭窗口
+  const handleClose = useCallback(async () => {
+    await currentWindow.close();
+  }, [currentWindow]);
+
+  useEscapeKey(handleClose);
 
   // ASCII 转十六进制
   const asciiToHex = (text: string): string => {

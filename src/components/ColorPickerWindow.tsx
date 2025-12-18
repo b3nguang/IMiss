@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { tauriApi } from "../api/tauri";
+import { useEscapeKey } from "../hooks/useEscapeKey";
 
 interface ColorFormat {
   hex: string;
@@ -42,6 +43,13 @@ export function ColorPickerWindow() {
     currentWindow.setTitle("拾色器");
     loadColorHistory();
   }, [currentWindow]);
+
+  // Esc 键关闭窗口
+  const handleClose = useCallback(async () => {
+    await currentWindow.close();
+  }, [currentWindow]);
+
+  useEscapeKey(handleClose);
 
   // 加载历史记录
   const loadColorHistory = () => {

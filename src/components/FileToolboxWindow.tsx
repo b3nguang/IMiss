@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, confirm, message } from "@tauri-apps/plugin-dialog";
 import { tauriApi } from "../api/tauri";
+import { useEscapeKey } from "../hooks/useEscapeKey";
 
 interface ReplaceResult {
   filePath: string;
@@ -24,6 +25,14 @@ export function FileToolboxWindow() {
   const [previewMode, setPreviewMode] = useState(true);
   const [backupFolder, setBackupFolder] = useState(true);
   const [replaceFileName, setReplaceFileName] = useState(true);
+
+  // Esc 键关闭窗口
+  const handleCloseWindow = useCallback(async () => {
+    const window = getCurrentWindow();
+    await window.close();
+  }, []);
+
+  useEscapeKey(handleCloseWindow);
 
   // 选择文件夹
   const handleSelectFolder = async () => {

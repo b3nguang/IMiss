@@ -1,15 +1,16 @@
-import { useEffect } from "react";
+import { useCallback } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { executePlugin } from "../plugins";
 import type { PluginContext } from "../types";
 import { tauriApi } from "../api/tauri";
 import { AppCenterContent } from "./AppCenterContent";
+import { useEscapeKey } from "../hooks/useEscapeKey";
 
 export function PluginListWindow() {
-  const handleClose = async () => {
+  const handleClose = useCallback(async () => {
     const window = getCurrentWindow();
     await window.close();
-  };
+  }, []);
 
   // 处理插件点击
   const handlePluginClick = async (pluginId: string) => {
@@ -34,21 +35,8 @@ export function PluginListWindow() {
     }
   };
 
-  // ESC 键处理
-  useEffect(() => {
-    const handleKeyDown = async (e: KeyboardEvent) => {
-      if (e.key === "Escape" || e.keyCode === 27) {
-        e.preventDefault();
-        e.stopPropagation();
-        await handleClose();
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown, true);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown, true);
-    };
-  }, []);
+  // ESC 键关闭窗口
+  useEscapeKey(handleClose);
 
   return (
     <div className="h-screen w-screen flex flex-col bg-gray-50">

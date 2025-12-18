@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { create, all } from "mathjs";
+import { useEscapeKey } from "../hooks/useEscapeKey";
 
 interface CalculationLine {
   id: string;
@@ -291,19 +292,12 @@ export function CalculatorPadWindow() {
   };
 
   // ESC 键关闭窗口
-  useEffect(() => {
-    const handleKeyDown = async (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        const window = getCurrentWindow();
-        await window.close();
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
+  const handleClose = useCallback(async () => {
+    const window = getCurrentWindow();
+    await window.close();
   }, []);
+
+  useEscapeKey(handleClose);
 
   // 复制单行结果（只复制结果，不包含表达式）
   const copyLineResult = async (line: CalculationLine) => {

@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import Editor from "@monaco-editor/react";
 import type { editor } from "monaco-editor";
+import { useEscapeKey } from "../hooks/useEscapeKey";
 
 type JsonValue = string | number | boolean | null | JsonObject | JsonArray;
 type JsonObject = { [key: string]: JsonValue };
@@ -566,19 +567,12 @@ export function JsonFormatterWindow() {
   };
 
   // ESC 键关闭窗口
-  useEffect(() => {
-    const handleKeyDown = async (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        const window = getCurrentWindow();
-        await window.close();
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
+  const handleClose = useCallback(async () => {
+    const window = getCurrentWindow();
+    await window.close();
   }, []);
+
+  useEscapeKey(handleClose);
 
   return (
     <div
