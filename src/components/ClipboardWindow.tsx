@@ -19,29 +19,70 @@ export function ClipboardWindow() {
       setClipboardItems(items);
       setFilteredItems(items);
       
-      // 预加载图片数据
-      const newImageDataUrls = new Map<string, string>();
-      for (const item of items) {
-        if (item.content_type === "image" && !imageDataUrls.has(item.content)) {
-          try {
-            const imageData = await tauriApi.getClipboardImageData(item.content);
-            const blob = new Blob([imageData], { type: 'image/png' });
-            const url = URL.createObjectURL(blob);
-            newImageDataUrls.set(item.content, url);
-          } catch (error) {
-            console.error("Failed to load image:", error);
-          }
+      // 清理不再存在的图片URLs
+      const currentImagePaths = new Set(
+        items.filter(item => item.content_type === "image").map(item => item.content)
+      );
+      imageDataUrls.forEach((url, path) => {
+        if (!currentImagePaths.has(path)) {
+          URL.revokeObjectURL(url);
+          imageDataUrls.delete(path);
         }
-      }
-      setImageDataUrls(prev => new Map([...prev, ...newImageDataUrls]));
+      });
+      setImageDataUrls(new Map(imageDataUrls));
     } catch (error) {
       console.error("Failed to load clipboard items:", error);
     }
   };
 
+  // 懒加载图片数据
+  const loadImageData = async (imagePath: string) => {
+    if (imageDataUrls.has(imagePath)) {
+      return; // 已经加载过了
+    }
+
+    try {
+      const imageData = await tauriApi.getClipboardImageData(imagePath);
+      // 确保 imageData 是 Uint8Array
+      const uint8Array = imageData instanceof Uint8Array 
+        ? imageData 
+        : new Uint8Array(imageData as any);
+      const blob = new Blob([uint8Array], { type: 'image/png' });
+      const url = URL.createObjectURL(blob);
+      setImageDataUrls(prev => new Map(prev).set(imagePath, url));
+    } catch (error) {
+      console.error("Failed to load image:", error);
+    }
+  };
+
   useEffect(() => {
     loadClipboardItems();
+    
+    // 清理函数：组件卸载时释放所有 blob URLs
+    return () => {
+      imageDataUrls.forEach(url => URL.revokeObjectURL(url));
+    };
   }, []);
+
+  // 当选中图片项时，自动加载图片数据
+  useEffect(() => {
+    if (selectedItem?.content_type === "image") {
+      loadImageData(selectedItem.content);
+    }
+  }, [selectedItem]);
+
+  // 自动加载列表中前面的图片缩略图（优化用户体验）
+  useEffect(() => {
+    const imagesToLoad = filteredItems
+      .filter(item => item.content_type === "image")
+      .slice(0, 10); // 只加载前10个
+    
+    imagesToLoad.forEach(item => {
+      if (!imageDataUrls.has(item.content)) {
+        loadImageData(item.content);
+      }
+    });
+  }, [filteredItems]);
 
   useEffect(() => {
     if (searchQuery.trim() === "") {
@@ -228,6 +269,12 @@ export function ClipboardWindow() {
         {/* Actions */}
         <div className="p-3 border-b border-gray-200 flex gap-2">
           <button
+            onClick={loadClipboardItems}
+            className="flex-1 px-3 py-1.5 text-sm text-blue-600 hover:bg-blue-50 rounded transition-colors border border-blue-200"
+          >
+            刷新
+          </button>
+          <button
             onClick={handleClearHistory}
             className="flex-1 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded transition-colors border border-red-200"
           >
@@ -268,12 +315,22 @@ export function ClipboardWindow() {
                   </div>
                   {item.content_type === "image" ? (
                     <div className="flex items-center gap-2">
-                      {imageDataUrls.has(item.content) && (
+                      {imageDataUrls.has(item.content) ? (
                         <img 
                           src={imageDataUrls.get(item.content)} 
                           alt="clipboard" 
                           className="w-10 h-10 object-cover rounded"
                         />
+                      ) : (
+                        <div 
+                          className="w-10 h-10 bg-gray-100 rounded flex items-center justify-center text-gray-400 text-xs"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            loadImageData(item.content);
+                          }}
+                        >
+                          📷
+                        </div>
                       )}
                       <span className="text-sm text-gray-600">图片</span>
                     </div>

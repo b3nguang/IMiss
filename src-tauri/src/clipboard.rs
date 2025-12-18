@@ -3,6 +3,7 @@ use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
+use sha2::{Sha256, Digest};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClipboardItem {
@@ -179,20 +180,150 @@ pub fn toggle_favorite_clipboard_item(
 /// 删除剪切板项
 pub fn delete_clipboard_item(id: String, app_data_dir: &PathBuf) -> Result<(), String> {
     let conn = db::get_connection(app_data_dir)?;
+    
+    // 先查询该项的内容和类型，如果是图片则需要删除文件
+    let item: Option<(String, String)> = conn
+        .query_row(
+            "SELECT content, content_type FROM clipboard_history WHERE id = ?1",
+            params![id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(|e| format!("Failed to query clipboard item: {}", e))?;
+    
+    // 先删除数据库记录
     let affected = conn
         .execute("DELETE FROM clipboard_history WHERE id = ?1", params![id])
         .map_err(|e| format!("Failed to delete clipboard item: {}", e))?;
     if affected == 0 {
         return Err("Clipboard item not found".to_string());
     }
+    
+    if let Some((content, content_type)) = item {
+        // 如果是图片类型，检查是否还有其他记录引用这个文件
+        if content_type == "image" {
+            let ref_count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM clipboard_history WHERE content = ?1 AND content_type = 'image'",
+                    params![content],
+                    |row| row.get(0),
+                )
+                .unwrap_or(0);
+            
+            println!("[Clipboard] Image {} has {} remaining references", content, ref_count);
+            
+            // 只有当没有其他记录引用时才删除文件
+            if ref_count == 0 {
+                let image_path = std::path::Path::new(&content);
+                println!("[Clipboard] Deleting image: {}", content);
+                
+                if image_path.exists() {
+                    // 重试删除最多3次
+                    let mut retry = 0;
+                    let max_retries = 3;
+                    
+                    while retry < max_retries {
+                        match std::fs::remove_file(image_path) {
+                            Ok(_) => {
+                                println!("[Clipboard] Successfully deleted image file: {}", content);
+                                break;
+                            }
+                            Err(e) => {
+                                retry += 1;
+                                eprintln!("[Clipboard] Failed to delete image file {} (attempt {}): {}", content, retry, e);
+                                if retry < max_retries {
+                                    std::thread::sleep(std::time::Duration::from_millis(100));
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    eprintln!("[Clipboard] Image file not found: {}", content);
+                }
+            }
+        }
+    }
+    
     Ok(())
 }
 
 /// 清空剪切板历史
 pub fn clear_clipboard_history(app_data_dir: &PathBuf) -> Result<(), String> {
     let conn = db::get_connection(app_data_dir)?;
+    
+    // 先查询所有要删除的图片项（去重）
+    let mut stmt = conn
+        .prepare("SELECT DISTINCT content FROM clipboard_history WHERE is_favorite = 0 AND content_type = 'image'")
+        .map_err(|e| format!("Failed to prepare query: {}", e))?;
+    
+    let image_paths: Vec<String> = stmt
+        .query_map([], |row| row.get(0))
+        .map_err(|e| format!("Failed to query image paths: {}", e))?
+        .filter_map(|r| r.ok())
+        .collect();
+    
+    // 释放语句，避免持有数据库连接
+    drop(stmt);
+    
+    println!("[Clipboard] Found {} unique image files to check", image_paths.len());
+    
+    // 先删除数据库记录
     conn.execute("DELETE FROM clipboard_history WHERE is_favorite = 0", [])
         .map_err(|e| format!("Failed to clear clipboard history: {}", e))?;
+    
+    // 然后检查并删除图片文件
+    let mut deleted_count = 0;
+    for image_path in image_paths {
+        // 检查是否还有收藏记录引用这个图片
+        let ref_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM clipboard_history WHERE content = ?1 AND content_type = 'image'",
+                params![image_path],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        
+        if ref_count > 0 {
+            println!("[Clipboard] Skipping {} (still referenced by {} favorite(s))", image_path, ref_count);
+            continue;
+        }
+        
+        let path = std::path::Path::new(&image_path);
+        println!("[Clipboard] Attempting to delete: {}", image_path);
+        
+        if path.exists() {
+            // 重试删除最多3次
+            let mut retry = 0;
+            let max_retries = 3;
+            let mut success = false;
+            
+            while retry < max_retries {
+                match std::fs::remove_file(path) {
+                    Ok(_) => {
+                        deleted_count += 1;
+                        println!("[Clipboard] Successfully deleted: {}", image_path);
+                        success = true;
+                        break;
+                    }
+                    Err(e) => {
+                        retry += 1;
+                        eprintln!("[Clipboard] Failed to delete image file {} (attempt {}): {}", image_path, retry, e);
+                        if retry < max_retries {
+                            std::thread::sleep(std::time::Duration::from_millis(100));
+                        }
+                    }
+                }
+            }
+            
+            if !success {
+                eprintln!("[Clipboard] Gave up deleting {} after {} attempts", image_path, max_retries);
+            }
+        } else {
+            eprintln!("[Clipboard] Image file not found: {}", image_path);
+        }
+    }
+    
+    println!("[Clipboard] Successfully deleted {} image files", deleted_count);
     Ok(())
 }
 
@@ -386,14 +517,6 @@ pub mod monitor {
                     return Err(format!("Failed to create clipboard images directory: {}", e));
                 }
 
-                // 生成文件名
-                let timestamp = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs();
-                let filename = format!("clipboard_{}.png", timestamp);
-                let file_path = clipboard_images_dir.join(&filename);
-
                 // 计算图片数据大小
                 let bytes_per_pixel = (bit_count / 8) as usize;
                 let row_size = ((width * bit_count as i32 + 31) / 32 * 4) as usize;
@@ -420,9 +543,26 @@ pub mod monitor {
                     }
                 }
 
+                // 计算图片内容的哈希值（用于去重）
+                let mut hasher = Sha256::new();
+                hasher.update(&rgba_data);
+                let hash_result = hasher.finalize();
+                let hash_str = format!("{:x}", hash_result);
+                
+                // 使用哈希值作为文件名（取前16个字符）
+                let filename = format!("clipboard_{}.png", &hash_str[..16]);
+                let file_path = clipboard_images_dir.join(&filename);
+
+                // 如果文件已存在（说明是重复的图片），直接返回路径
+                if file_path.exists() {
+                    GlobalUnlock(h_data as *mut std::ffi::c_void);
+                    CloseClipboard();
+                    return Ok(file_path.to_string_lossy().to_string());
+                }
+
                 // 保存为 PNG
                 let save_result = save_png(&file_path, &rgba_data, width as u32, height as u32);
-                
+
                 GlobalUnlock(h_data as *mut std::ffi::c_void);
                 
                 match save_result {

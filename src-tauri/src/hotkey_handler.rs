@@ -1214,7 +1214,6 @@ pub mod windows {
         let manager = MULTI_HOTKEY_MANAGER.clone();
         let mut hotkeys_guard = manager.hotkeys.lock().unwrap();
         hotkeys_guard.insert(plugin_id.clone(), config);
-        eprintln!("[MultiHotkey] Registered hotkey for plugin: {}", plugin_id);
         Ok(())
     }
     
@@ -1223,7 +1222,6 @@ pub mod windows {
         let manager = MULTI_HOTKEY_MANAGER.clone();
         let mut hotkeys_guard = manager.hotkeys.lock().unwrap();
         hotkeys_guard.remove(plugin_id);
-        eprintln!("[MultiHotkey] Unregistered hotkey for plugin: {}", plugin_id);
         Ok(())
     }
     

@@ -472,7 +472,21 @@ fn main() {
                         let app_data_dir_plugin = app_data_dir.clone();
                         std::thread::spawn(move || {
                             std::thread::sleep(std::time::Duration::from_millis(500)); // 等待监听器完全启动
-                            if let Ok(settings) = settings::load_settings(&app_data_dir_plugin) {
+                            if let Ok(mut settings) = settings::load_settings(&app_data_dir_plugin) {
+                                // 清理已被移除/禁用的插件的快捷键
+                                let removed_plugins = vec!["color_picker"];
+                                let mut cleaned = false;
+                                for plugin_id in removed_plugins {
+                                    if settings.plugin_hotkeys.remove(plugin_id).is_some() {
+                                        cleaned = true;
+                                    }
+                                }
+                                
+                                // 如果清理了快捷键，保存设置
+                                if cleaned {
+                                    let _ = settings::save_settings(&app_data_dir_plugin, &settings);
+                                }
+                                
                                 // 注册插件快捷键
                                 let plugin_hotkeys = settings.plugin_hotkeys.clone();
                                 if !plugin_hotkeys.is_empty() {

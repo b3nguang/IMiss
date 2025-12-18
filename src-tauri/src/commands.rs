@@ -5393,7 +5393,28 @@ pub async fn show_hotkey_settings(app: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn get_plugin_hotkeys(app: tauri::AppHandle) -> Result<std::collections::HashMap<String, settings::HotkeyConfig>, String> {
     let app_data_dir = get_app_data_dir(&app)?;
-    let settings = settings::load_settings(&app_data_dir)?;
+    let mut settings = settings::load_settings(&app_data_dir)?;
+    
+    // 自动清理已被注释/禁用的插件的快捷键（如 color_picker）
+    let removed_plugins = vec!["color_picker"];
+    let mut cleaned = false;
+    for plugin_id in removed_plugins {
+        if settings.plugin_hotkeys.remove(plugin_id).is_some() {
+            cleaned = true;
+        }
+    }
+    
+    // 如果清理了快捷键，保存设置
+    if cleaned {
+        settings::save_settings(&app_data_dir, &settings)?;
+        
+        // 同步更新快捷键注册
+        #[cfg(target_os = "windows")]
+        {
+            let _ = crate::hotkey_handler::windows::update_plugin_hotkeys(settings.plugin_hotkeys.clone());
+        }
+    }
+    
     Ok(settings.plugin_hotkeys)
 }
 
