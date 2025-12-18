@@ -153,12 +153,18 @@ function SettingsApp() {
     loadSettings();
 
     // 监听刷新事件
-    const unlisten = listen("settings:refresh", () => {
+    const unlistenRefresh = listen("settings:refresh", () => {
       loadSettings();
     });
 
+    // 监听导航到关于页面的事件
+    const unlistenNavigate = listen("settings:navigate-to-about", () => {
+      setActivePage("about");
+    });
+
     return () => {
-      unlisten.then((fn) => fn());
+      unlistenRefresh.then((fn) => fn());
+      unlistenNavigate.then((fn) => fn());
     };
   }, []);
 

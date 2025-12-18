@@ -693,6 +693,7 @@ fn main() {
             restart_app,
             get_app_version,
             check_update,
+            download_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

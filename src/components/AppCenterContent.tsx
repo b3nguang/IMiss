@@ -88,7 +88,16 @@ interface AppCenterContentProps {
 }
 
 export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenterContentProps) {
-  const [activeCategory, setActiveCategory] = useState<MenuCategory>("plugins");
+  // 从 localStorage 读取上次的标签页，默认为 "plugins"
+  const [activeCategory, setActiveCategory] = useState<MenuCategory>(() => {
+    const savedCategory = localStorage.getItem("appcenter:last-category");
+    // 验证保存的值是否有效
+    const validCategories: MenuCategory[] = ["plugins", "settings", "about", "index", "statistics"];
+    if (savedCategory && validCategories.includes(savedCategory as MenuCategory)) {
+      return savedCategory as MenuCategory;
+    }
+    return "plugins";
+  });
   const [searchQuery, setSearchQuery] = useState("");
   const [indexStatus, setIndexStatus] = useState<IndexStatus | null>(null);
   const [isLoadingIndex, setIsLoadingIndex] = useState(false);
@@ -253,6 +262,35 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
       void loadPluginUsage();
     }
   }, [activeCategory, isLoadingPluginUsage, loadPluginUsage, pluginUsage.length, pluginUsageError]);
+
+  // 检查是否需要自动跳转到关于页面（优先级高于保存的标签页）
+  useEffect(() => {
+    const shouldOpenToAbout = localStorage.getItem("appcenter:open-to-about");
+    if (shouldOpenToAbout === "true") {
+      console.log("检测到需要跳转到关于页面");
+      setActiveCategory("about");
+      // 清除标志
+      localStorage.removeItem("appcenter:open-to-about");
+    }
+  }, []);
+
+  // 监听标签页切换，保存到 localStorage
+  useEffect(() => {
+    console.log(`应用中心标签页切换到: ${activeCategory}`);
+    localStorage.setItem("appcenter:last-category", activeCategory);
+  }, [activeCategory]);
+
+  // 监听导航到关于页面的事件（保留用于其他场景）
+  useEffect(() => {
+    const unlisten = listen("appcenter:navigate-to-about", () => {
+      console.log("收到导航到应用中心关于页面的事件");
+      setActiveCategory("about");
+    });
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
 
   const indexSummaryCards = useMemo(
     () => {

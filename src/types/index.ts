@@ -202,6 +202,13 @@ export interface UpdateCheckResult {
   published_at: string;
 }
 
+export interface DownloadProgress {
+  downloaded: number;
+  total: number;
+  percentage: number;
+  speed: string;
+}
+
 export interface DatabaseHealthStatus {
   accessible: boolean;
   error_message?: string | null;

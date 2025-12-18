@@ -5867,3 +5867,114 @@ pub async fn check_update() -> Result<UpdateCheckResult, String> {
         published_at: release.published_at,
     })
 }
+
+/// 下载进度信息
+#[derive(Debug, Clone, Serialize)]
+pub struct DownloadProgress {
+    pub downloaded: u64,
+    pub total: u64,
+    pub percentage: f64,
+    pub speed: String, // 下载速度（如 "2.5 MB/s"）
+}
+
+/// 下载更新文件
+#[tauri::command]
+pub async fn download_update(
+    app_handle: tauri::AppHandle,
+    download_url: String,
+) -> Result<String, String> {
+    use std::io::Write;
+    use std::time::Instant;
+    
+    // 获取临时目录
+    let temp_dir = std::env::temp_dir();
+    let file_name = download_url
+        .split('/')
+        .last()
+        .unwrap_or("ReFast-update.msi");
+    let file_path = temp_dir.join(file_name);
+    
+    // 创建 HTTP 客户端
+    let client = reqwest::Client::builder()
+        .user_agent("ReFast-Updater/1.0")
+        .timeout(Duration::from_secs(300)) // 5分钟超时
+        .build()
+        .map_err(|e| format!("创建 HTTP 客户端失败: {}", e))?;
+    
+    // 发送请求
+    let response = client
+        .get(&download_url)
+        .send()
+        .await
+        .map_err(|e| format!("请求下载链接失败: {}", e))?;
+    
+    if !response.status().is_success() {
+        return Err(format!("下载失败: HTTP {}", response.status()));
+    }
+    
+    // 获取文件总大小
+    let total_size = response
+        .content_length()
+        .ok_or_else(|| "无法获取文件大小".to_string())?;
+    
+    // 创建文件
+    let mut file = std::fs::File::create(&file_path)
+        .map_err(|e| format!("创建文件失败: {}", e))?;
+    
+    // 下载文件并报告进度
+    let mut downloaded: u64 = 0;
+    let mut stream = response.bytes_stream();
+    let start_time = Instant::now();
+    let mut last_update_time = Instant::now();
+    
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("下载数据失败: {}", e))?;
+        file.write_all(&chunk)
+            .map_err(|e| format!("写入文件失败: {}", e))?;
+        
+        downloaded += chunk.len() as u64;
+        
+        // 每 100ms 更新一次进度
+        if last_update_time.elapsed().as_millis() > 100 {
+            let elapsed_secs = start_time.elapsed().as_secs_f64();
+            let speed_bytes_per_sec = if elapsed_secs > 0.0 {
+                downloaded as f64 / elapsed_secs
+            } else {
+                0.0
+            };
+            
+            let speed_str = if speed_bytes_per_sec > 1024.0 * 1024.0 {
+                format!("{:.2} MB/s", speed_bytes_per_sec / (1024.0 * 1024.0))
+            } else if speed_bytes_per_sec > 1024.0 {
+                format!("{:.2} KB/s", speed_bytes_per_sec / 1024.0)
+            } else {
+                format!("{:.0} B/s", speed_bytes_per_sec)
+            };
+            
+            let percentage = (downloaded as f64 / total_size as f64) * 100.0;
+            
+            let progress = DownloadProgress {
+                downloaded,
+                total: total_size,
+                percentage,
+                speed: speed_str,
+            };
+            
+            // 发送进度事件
+            let _ = app_handle.emit("download-progress", progress);
+            last_update_time = Instant::now();
+        }
+    }
+    
+    // 发送完成事件（100%）
+    let progress = DownloadProgress {
+        downloaded: total_size,
+        total: total_size,
+        percentage: 100.0,
+        speed: "完成".to_string(),
+    };
+    let _ = app_handle.emit("download-progress", progress);
+    
+    // 返回文件路径
+    Ok(file_path.to_string_lossy().to_string())
+}

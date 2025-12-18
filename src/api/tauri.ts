@@ -562,5 +562,10 @@ export const tauriApi = {
   async checkUpdate(): Promise<UpdateCheckResult> {
     return invoke("check_update");
   },
+
+  // Download update API
+  async downloadUpdate(downloadUrl: string): Promise<string> {
+    return invoke("download_update", { downloadUrl });
+  },
 };
 

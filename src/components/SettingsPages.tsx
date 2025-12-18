@@ -1,7 +1,6 @@
 import { tauriApi } from "../api/tauri";
 import { useEffect, useState } from "react";
-import { UpdateCheckDialog } from "./UpdateCheckDialog";
-import type { UpdateCheckResult } from "../types";
+import { UpdateSection } from "./UpdateSection";
 
 interface OllamaSettingsProps {
   settings: {
@@ -114,6 +113,53 @@ export function SystemSettingsPage({
   onSettingsChange,
   onOpenHotkeySettings,
 }: SystemSettingsProps) {
+  const [nextCheckTime, setNextCheckTime] = useState<string>("");
+
+  // 计算下次检查更新的时间
+  useEffect(() => {
+    const calculateNextCheckTime = () => {
+      const lastCheckTimeStr = localStorage.getItem("last_update_check_time");
+      if (!lastCheckTimeStr) {
+        setNextCheckTime("启动时检查");
+        return;
+      }
+
+      const lastCheckTime = parseInt(lastCheckTimeStr, 10);
+      const nextCheck = lastCheckTime + 24 * 60 * 60 * 1000; // 24小时后
+      const now = Date.now();
+
+      if (now >= nextCheck) {
+        setNextCheckTime("启动时检查");
+      } else {
+        const nextCheckDate = new Date(nextCheck);
+        const today = new Date();
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+
+        // 判断是今天还是明天
+        if (nextCheckDate.toDateString() === today.toDateString()) {
+          setNextCheckTime(`今天 ${nextCheckDate.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`);
+        } else if (nextCheckDate.toDateString() === tomorrow.toDateString()) {
+          setNextCheckTime(`明天 ${nextCheckDate.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`);
+        } else {
+          setNextCheckTime(nextCheckDate.toLocaleString("zh-CN", {
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          }));
+        }
+      }
+    };
+
+    calculateNextCheckTime();
+    
+    // 每分钟更新一次
+    const interval = setInterval(calculateNextCheckTime, 60000);
+    
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <div className="space-y-6">
       <div>
@@ -223,9 +269,15 @@ export function SystemSettingsPage({
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   自动检查更新
                 </label>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-500 mb-1">
                   启动时自动检查是否有新版本（每 24 小时检查一次）
                 </p>
+                {settings.auto_check_update !== false && nextCheckTime && (
+                  <p className="text-xs text-blue-600 font-medium flex items-center gap-1">
+                    <span>🕐</span>
+                    <span>下次检查：{nextCheckTime}</span>
+                  </p>
+                )}
               </div>
               <label className="relative inline-flex items-center cursor-pointer">
                 <input
@@ -254,9 +306,6 @@ interface AboutSettingsProps {}
 
 export function AboutSettingsPage({}: AboutSettingsProps) {
   const [version, setVersion] = useState<string>("");
-  const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null);
-  const [isUpdateDialogOpen, setIsUpdateDialogOpen] = useState(false);
-  const [isChecking, setIsChecking] = useState(false);
 
   useEffect(() => {
     const loadVersion = async () => {
@@ -289,24 +338,6 @@ export function AboutSettingsPage({}: AboutSettingsProps) {
     }
   };
 
-  const handleCheckUpdate = async () => {
-    setIsChecking(true);
-    try {
-      const result = await tauriApi.checkUpdate();
-      if (result.has_update) {
-        setUpdateInfo(result);
-        setIsUpdateDialogOpen(true);
-      } else {
-        alert(`当前已是最新版本 (${result.current_version})`);
-      }
-    } catch (error) {
-      console.error("检查更新失败:", error);
-      alert("检查更新失败，请稍后重试或前往 GitHub 查看");
-    } finally {
-      setIsChecking(false);
-    }
-  };
-
   return (
     <div className="space-y-6">
       <div>
@@ -324,6 +355,9 @@ export function AboutSettingsPage({}: AboutSettingsProps) {
             </div>
           </div>
 
+          {/* 更新检查区域 - 使用独立组件 */}
+          <UpdateSection currentVersion={version} />
+
           <div className="border-t border-gray-200 pt-6">
             <div className="space-y-4">
               <div>
@@ -340,13 +374,6 @@ export function AboutSettingsPage({}: AboutSettingsProps) {
                     className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors text-sm"
                   >
                     GitHub 主页
-                  </button>
-                  <button
-                    onClick={handleCheckUpdate}
-                    disabled={isChecking}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors text-sm"
-                  >
-                    {isChecking ? "检查中..." : "检查更新"}
                   </button>
                   <button
                     onClick={handleContactAuthor}
@@ -373,13 +400,6 @@ export function AboutSettingsPage({}: AboutSettingsProps) {
           </div>
         </div>
       </div>
-
-      {/* 更新检查弹窗 */}
-      <UpdateCheckDialog
-        isOpen={isUpdateDialogOpen}
-        onClose={() => setIsUpdateDialogOpen(false)}
-        updateInfo={updateInfo}
-      />
     </div>
   );
 }

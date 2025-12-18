@@ -4,10 +4,10 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { tauriApi } from "../api/tauri";
 import { trackEvent } from "../api/events";
-import type { AppInfo, FileHistoryItem, EverythingResult, MemoItem, PluginContext } from "../types";
+import type { AppInfo, FileHistoryItem, EverythingResult, MemoItem, PluginContext, UpdateCheckResult } from "../types";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize } from "@tauri-apps/api/window";
-import { listen } from "@tauri-apps/api/event";
+import { listen, emit } from "@tauri-apps/api/event";
 import { plugins, searchPlugins, executePlugin } from "../plugins";
 import { AppCenterContent } from "./AppCenterContent";
 import { MemoModal } from "./MemoModal";
@@ -91,7 +91,11 @@ type SearchResult = {
 };
 
 
-export function LauncherWindow() {
+interface LauncherWindowProps {
+  updateInfo?: UpdateCheckResult | null;
+}
+
+export function LauncherWindow({ updateInfo }: LauncherWindowProps) {
   const [query, setQuery] = useState("");
   const [apps, setApps] = useState<AppInfo[]>([]);
   const [filteredApps, setFilteredApps] = useState<AppInfo[]>([]);
@@ -6111,8 +6115,9 @@ export function LauncherWindow() {
               // 阻止 footer 区域的点击事件被 header 的拖动处理器捕获
               const target = e.target as HTMLElement;
               const isButton = target.tagName === 'BUTTON' || target.closest('button');
-              if (isButton) {
-                // 如果是按钮，阻止事件冒泡到 header，让按钮自己的 onClick 处理
+              const isUpdateNotice = target.closest('[data-update-notice]');
+              if (isButton || isUpdateNotice) {
+                // 如果是按钮或更新提示，阻止事件冒泡到 header，让其自己的 onClick 处理
                 e.stopPropagation();
               }
             }}
@@ -6122,11 +6127,11 @@ export function LauncherWindow() {
               {showAiAnswer && <span className="whitespace-nowrap">AI 回答模式</span>}
               <div className="flex items-center gap-2 min-w-0 flex-1">
                 <div 
-                  className="flex items-center gap-1 cursor-help whitespace-nowrap" 
+                  className="flex items-center gap-1.5 cursor-help whitespace-nowrap" 
                   title={everythingPath ? `Everything 路径: ${everythingPath}` : 'Everything 未安装或未在 PATH 中'}
                 >
-                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${isEverythingAvailable ? 'bg-green-500' : 'bg-gray-300'}`}></div>
-                  <span className={isEverythingAvailable ? 'text-green-600' : 'text-gray-400'}>
+                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${isEverythingAvailable ? 'bg-emerald-500' : 'bg-gray-300'}`}></div>
+                  <span className={`text-xs ${isEverythingAvailable ? 'text-emerald-600' : 'text-gray-500'}`}>
                     {isEverythingAvailable ? 'Everything 已启用' : (
                       everythingError?.startsWith("NOT_INSTALLED") 
                         ? 'Everything 未安装' 
@@ -6203,6 +6208,36 @@ export function LauncherWindow() {
                     >
                       刷新
                     </button>
+                  </div>
+                )}
+                {/* 更新提示 - 放在按钮后面 */}
+                {updateInfo?.has_update && (
+                  <div 
+                    data-update-notice
+                    className="flex items-center gap-1.5 cursor-pointer whitespace-nowrap hover:opacity-80 transition-opacity" 
+                    title={`发现新版本 ${updateInfo.latest_version}，点击查看详情`}
+                    onClick={async (e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      try {
+                        console.log("点击更新提示，准备打开应用中心窗口");
+                        // 设置标志，让应用中心窗口加载时自动跳转到关于页面
+                        localStorage.setItem("appcenter:open-to-about", "true");
+                        // 先隐藏启动器
+                        await tauriApi.hideLauncher();
+                        console.log("启动器已隐藏");
+                        // 打开独立的应用中心窗口
+                        await tauriApi.showPluginListWindow();
+                        console.log("应用中心窗口已打开");
+                      } catch (error) {
+                        console.error("Failed to open app center window:", error);
+                      }
+                    }}
+                  >
+                    <div className="w-2 h-2 rounded-full flex-shrink-0 bg-orange-500 animate-pulse"></div>
+                    <span className="text-xs text-orange-600 font-medium">
+                      发现新版本 {updateInfo.latest_version}
+                    </span>
                   </div>
                 )}
               </div>

@@ -1,6 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
 import { tauriApi } from "../api/tauri";
-import { UpdateCheckDialog } from "./UpdateCheckDialog";
 import type { UpdateCheckResult } from "../types";
 
 interface UpdateCheckerProps {
@@ -12,19 +11,18 @@ interface UpdateCheckerProps {
 /**
  * 更新检查组件
  * 支持自动检查和手动检查
+ * 不显示弹窗，通过回调函数通知父组件
  */
 export function UpdateChecker({
   autoCheck = true,
   checkInterval = 24,
   onUpdateFound,
 }: UpdateCheckerProps) {
-  const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null);
   const [isChecking, setIsChecking] = useState(false);
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [lastCheckTime, setLastCheckTime] = useState<number | null>(null);
 
   // 检查更新
-  const checkUpdate = useCallback(async (showDialog = true) => {
+  const checkUpdate = useCallback(async () => {
     // 防止重复检查
     if (isChecking) {
       return;
@@ -33,15 +31,11 @@ export function UpdateChecker({
     setIsChecking(true);
     try {
       const result = await tauriApi.checkUpdate();
-      setUpdateInfo(result);
       setLastCheckTime(Date.now());
 
       if (result.has_update) {
         if (onUpdateFound) {
           onUpdateFound(result);
-        }
-        if (showDialog) {
-          setIsDialogOpen(true);
         }
       }
     } catch (error) {
@@ -69,7 +63,7 @@ export function UpdateChecker({
     if (shouldCheck) {
       // 延迟 5 秒检查，避免影响启动速度
       const timer = setTimeout(() => {
-        checkUpdate(true);
+        checkUpdate();
       }, 5000);
 
       return () => clearTimeout(timer);
@@ -84,37 +78,8 @@ export function UpdateChecker({
     }
   }, [lastCheckTime]);
 
-  const handleClose = () => {
-    setIsDialogOpen(false);
-  };
-
-  const handleIgnore = async () => {
-    if (updateInfo) {
-      // 保存忽略的版本号
-      localStorage.setItem("ignored_update_version", updateInfo.latest_version);
-    }
-  };
-
-  // 检查是否已忽略此版本
-  const isIgnored = updateInfo && 
-    localStorage.getItem("ignored_update_version") === updateInfo.latest_version;
-
-  // 如果已忽略，不显示弹窗
-  if (isIgnored && isDialogOpen) {
-    setIsDialogOpen(false);
-  }
-
-  return (
-    <>
-      <UpdateCheckDialog
-        isOpen={isDialogOpen && !isIgnored}
-        onClose={handleClose}
-        updateInfo={updateInfo}
-        onIgnore={handleIgnore}
-      />
-      {/* 暴露手动检查方法（通过 ref 或 props） */}
-    </>
-  );
+  // 不渲染任何 UI，只负责检查逻辑
+  return null;
 }
 
 // 导出手动检查函数供外部调用
