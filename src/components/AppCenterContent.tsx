@@ -860,6 +860,24 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
           </svg>
         );
+      case "translation":
+        return (
+          <svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
+          </svg>
+        );
+      case "hex_converter":
+        return (
+          <svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+          </svg>
+        );
+      case "clipboard":
+        return (
+          <svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+          </svg>
+        );
       default:
         return (
           <svg className={iconClass} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -886,6 +904,12 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
         return "bg-gradient-to-br from-teal-100 to-teal-200";
       case "file_toolbox":
         return "bg-gradient-to-br from-pink-100 to-pink-200";
+      case "translation":
+        return "bg-gradient-to-br from-cyan-100 to-cyan-200";
+      case "hex_converter":
+        return "bg-gradient-to-br from-amber-100 to-amber-200";
+      case "clipboard":
+        return "bg-gradient-to-br from-emerald-100 to-emerald-200";
       default:
         return "bg-gradient-to-br from-gray-100 to-gray-200";
     }
@@ -908,6 +932,12 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
         return "text-teal-600";
       case "file_toolbox":
         return "text-pink-600";
+      case "translation":
+        return "text-cyan-600";
+      case "hex_converter":
+        return "text-amber-600";
+      case "clipboard":
+        return "text-emerald-600";
       default:
         return "text-gray-600";
     }
