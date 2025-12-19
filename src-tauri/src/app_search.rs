@@ -1643,15 +1643,19 @@ pub mod windows {
     fn extract_exe_icon_base64_native(file_path: &Path) -> Option<String> {
         let file_path_str = file_path.to_string_lossy().to_string();
         
-        eprintln!("[EXE图标Native] 开始提取: file_path={}", file_path_str);
+        // 展开 GUID 格式的路径（如 {1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\RecoveryDrive.exe）
+        let expanded_path_str = expand_known_folder_guid(&file_path_str);
+        let expanded_path = Path::new(&expanded_path_str);
+        
+        eprintln!("[EXE图标Native] 开始提取: file_path={}, expanded_path={}", file_path_str, expanded_path_str);
         
         // 优先使用 IShellItemImageFactory（最可靠）
-        if let Some(result) = extract_icon_png_via_shell(file_path, 32) {
+        if let Some(result) = extract_icon_png_via_shell(expanded_path, 32) {
             eprintln!("[EXE图标Native] IShellItemImageFactory 成功: file_path={}, icon_len={}", 
-                file_path_str, result.len());
+                expanded_path_str, result.len());
             return Some(result);
         } else {
-            eprintln!("[EXE图标Native] IShellItemImageFactory 失败: file_path={}", file_path_str);
+            eprintln!("[EXE图标Native] IShellItemImageFactory 失败: file_path={}", expanded_path_str);
         }
         
         // 回退方案: 使用 ExtractIconExW + icon_to_png
@@ -1665,14 +1669,14 @@ pub mod windows {
         unsafe {
             let hr = CoInitializeEx(std::ptr::null_mut(), COINIT_APARTMENTTHREADED as u32);
             if hr < 0 && hr != 0x00000001 {
-                eprintln!("[EXE图标Native] CoInitializeEx 失败: file_path={}, hr=0x{:08X}", file_path_str, hr);
+                eprintln!("[EXE图标Native] CoInitializeEx 失败: file_path={}, hr=0x{:08X}", expanded_path_str, hr);
                 return None;
             }
         }
 
         let result = (|| -> Option<String> {
-            // 使用 ExtractIconExW 从 exe 文件提取图标
-            let file_path_wide: Vec<u16> = OsStr::new(file_path)
+            // 使用 ExtractIconExW 从 exe 文件提取图标（使用展开后的路径）
+            let file_path_wide: Vec<u16> = OsStr::new(expanded_path)
                 .encode_wide()
                 .chain(Some(0))
                 .collect();
@@ -1689,22 +1693,22 @@ pub mod windows {
                 );
 
                 eprintln!("[EXE图标Native] ExtractIconExW 调用: file_path={}, count={}, icon_handle={}", 
-                    file_path_str, count, large_icons[0]);
+                    expanded_path_str, count, large_icons[0]);
 
                 if count > 0 && large_icons[0] != 0 {
                     if let Some(png_data) = icon_to_png(large_icons[0]) {
                         eprintln!("[EXE图标Native] icon_to_png 成功: file_path={}, png_len={}", 
-                            file_path_str, png_data.len());
+                            expanded_path_str, png_data.len());
                         DestroyIcon(large_icons[0]);
                         // 返回纯 base64 字符串，不带 data:image/png;base64, 前缀
                         return Some(png_data);
                     }
-                    eprintln!("[EXE图标Native] icon_to_png 失败: file_path={}", file_path_str);
+                    eprintln!("[EXE图标Native] icon_to_png 失败: file_path={}", expanded_path_str);
                     DestroyIcon(large_icons[0]);
                 }
             }
 
-            eprintln!("[EXE图标Native] 提取失败，返回 None: file_path={}", file_path_str);
+            eprintln!("[EXE图标Native] 提取失败，返回 None: file_path={}", expanded_path_str);
             None
         })();
 
@@ -1886,6 +1890,8 @@ try {
                 if normalized_path.starts_with("\\\\?\\") {
                     normalized_path = normalized_path[4..].to_string();
                 }
+                // 展开 GUID 格式的路径（如 {1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\RecoveryDrive.exe）
+                normalized_path = expand_known_folder_guid(&normalized_path);
                 
                 eprintln!("[extract_icon_png_via_shell] 规范化路径: 原始={}, 规范化后={}", 
                     path_str, normalized_path);
