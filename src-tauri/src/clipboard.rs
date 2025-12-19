@@ -460,13 +460,20 @@ pub fn search_clipboard_items(query: &str, app_data_dir: &PathBuf) -> Result<Vec
 pub mod monitor {
     use super::*;
     use std::thread;
-    use std::time::Duration;
-    use std::os::windows::ffi::OsStringExt;
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use std::ffi::OsStr;
+    use std::ptr;
     use windows_sys::Win32::System::DataExchange::{
         GetClipboardData, IsClipboardFormatAvailable, OpenClipboard, CloseClipboard,
+        AddClipboardFormatListener, RemoveClipboardFormatListener,
     };
     use windows_sys::Win32::System::Memory::{GlobalLock, GlobalUnlock, GlobalSize};
-    use windows_sys::Win32::Foundation::HWND;
+    use windows_sys::Win32::Foundation::{HWND, HINSTANCE, LPARAM, WPARAM};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW,
+        RegisterClassExW, TranslateMessage, MSG, WNDCLASSEXW, WM_CLIPBOARDUPDATE, WM_QUIT,
+        WS_OVERLAPPED, CS_HREDRAW, CS_VREDRAW,
+    };
     use windows_sys::Win32::Graphics::Gdi::{
         GetDIBits, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
     };
@@ -476,49 +483,144 @@ pub mod monitor {
     const CF_DIB: u32 = 8;
     const CF_BITMAP: u32 = 2;
 
-    /// 启动剪切板监控线程
+    /// 启动剪切板监控线程（使用 Windows 消息机制，完全避免冲突）
     pub fn start_clipboard_monitor(app_data_dir: PathBuf) -> Result<(), String> {
         thread::spawn(move || {
+            // 创建隐藏的消息窗口来接收剪贴板更新通知
+            let hwnd = match create_message_window() {
+                Ok(hwnd) => hwnd,
+                Err(e) => {
+                    eprintln!("[Clipboard Monitor] Failed to create message window: {}", e);
+                    return;
+                }
+            };
+
+            // 注册剪贴板格式监听器（不需要打开剪贴板，完全避免冲突）
+            unsafe {
+                if AddClipboardFormatListener(hwnd) == 0 {
+                    eprintln!("[Clipboard Monitor] Failed to add clipboard format listener");
+                    return;
+                }
+            }
+
             let mut last_text_content = String::new();
             let mut last_image_hash = String::new();
-            
+
+            // 消息循环：只在收到剪贴板更新通知时才读取剪贴板
+            let mut msg: MSG = unsafe { std::mem::zeroed() };
             loop {
-                thread::sleep(Duration::from_millis(500));
-                
-                // 检查文本内容
-                if let Ok(content) = get_clipboard_text() {
-                    if !content.is_empty() && content != last_text_content {
-                        if let Err(e) = add_clipboard_item(content.clone(), "text".to_string(), &app_data_dir) {
-                            eprintln!("[Clipboard Monitor] Failed to add text clipboard item: {}", e);
-                        }
-                        last_text_content = content;
+                unsafe {
+                    let result = GetMessageW(&mut msg, hwnd, 0, 0);
+                    if result == 0 || result == -1 {
+                        // WM_QUIT 或错误
+                        break;
                     }
-                }
-                
-                // 检查图片内容
-                if let Ok(image_path) = get_clipboard_image(&app_data_dir) {
-                    if !image_path.is_empty() {
-                        // 使用文件路径作为简单的哈希来检测重复
-                        let image_hash = format!("{}", image_path);
-                        if image_hash != last_image_hash {
-                            if let Err(e) = add_clipboard_item(image_path.clone(), "image".to_string(), &app_data_dir) {
-                                eprintln!("[Clipboard Monitor] Failed to add image clipboard item: {}", e);
+
+                    if msg.message == WM_CLIPBOARDUPDATE {
+                        // 剪贴板内容已改变，现在可以安全地读取
+                        // 因为这是系统通知，说明剪贴板操作已完成
+                        
+                        // 检查文本内容
+                        if let Ok(content) = get_clipboard_text() {
+                            if !content.is_empty() && content != last_text_content {
+                                if let Err(e) = add_clipboard_item(content.clone(), "text".to_string(), &app_data_dir) {
+                                    eprintln!("[Clipboard Monitor] Failed to add text clipboard item: {}", e);
+                                }
+                                last_text_content = content;
                             }
-                            last_image_hash = image_hash;
+                        }
+                        
+                        // 检查图片内容
+                        if let Ok(image_path) = get_clipboard_image(&app_data_dir) {
+                            if !image_path.is_empty() {
+                                let image_hash = format!("{}", image_path);
+                                if image_hash != last_image_hash {
+                                    if let Err(e) = add_clipboard_item(image_path.clone(), "image".to_string(), &app_data_dir) {
+                                        eprintln!("[Clipboard Monitor] Failed to add image clipboard item: {}", e);
+                                    }
+                                    last_image_hash = image_hash;
+                                }
+                            }
                         }
                     }
+
+                    TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
                 }
+            }
+
+            // 清理：移除监听器
+            unsafe {
+                RemoveClipboardFormatListener(hwnd);
             }
         });
         
         Ok(())
     }
 
+    /// 创建隐藏的消息窗口
+    fn create_message_window() -> Result<HWND, String> {
+        unsafe {
+            let class_name = OsStr::new("ClipboardMonitorWindow\0")
+                .encode_wide()
+                .collect::<Vec<u16>>();
+
+            let wc = WNDCLASSEXW {
+                cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
+                style: CS_HREDRAW | CS_VREDRAW,
+                lpfnWndProc: Some(window_proc),
+                cbClsExtra: 0,
+                cbWndExtra: 0,
+                hInstance: 0 as HINSTANCE,
+                hIcon: 0,
+                hCursor: 0,
+                hbrBackground: 0,
+                lpszMenuName: ptr::null(),
+                lpszClassName: class_name.as_ptr(),
+                hIconSm: 0,
+            };
+
+            if RegisterClassExW(&wc) == 0 {
+                return Err("Failed to register window class".to_string());
+            }
+
+            let hwnd = CreateWindowExW(
+                0,
+                class_name.as_ptr(),
+                ptr::null(),
+                WS_OVERLAPPED,
+                0, 0, 0, 0,
+                0 as HWND,
+                0,
+                0 as HINSTANCE,
+                ptr::null_mut(),
+            );
+
+            if hwnd == 0 {
+                return Err("Failed to create window".to_string());
+            }
+
+            Ok(hwnd)
+        }
+    }
+
+    /// 窗口过程函数
+    unsafe extern "system" fn window_proc(
+        hwnd: HWND,
+        msg: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> isize {
+        DefWindowProcW(hwnd, msg, wparam, lparam)
+    }
+
     /// 获取剪切板文本内容
     pub fn get_clipboard_text() -> Result<String, String> {
         unsafe {
+            // 尝试打开剪贴板，如果失败（可能被其他程序占用），立即返回错误
+            // 不重试，避免阻塞用户的复制操作
             if OpenClipboard(0 as HWND) == 0 {
-                return Err("Failed to open clipboard".to_string());
+                return Err("Clipboard is busy or unavailable".to_string());
             }
 
             let result = if IsClipboardFormatAvailable(CF_UNICODETEXT) != 0 {
@@ -575,8 +677,10 @@ pub mod monitor {
     /// 获取剪切板图片并保存到本地
     pub fn get_clipboard_image(app_data_dir: &PathBuf) -> Result<String, String> {
         unsafe {
+            // 尝试打开剪贴板，如果失败（可能被其他程序占用），立即返回错误
+            // 不重试，避免阻塞用户的复制操作
             if OpenClipboard(0 as HWND) == 0 {
-                return Err("Failed to open clipboard".to_string());
+                return Err("Clipboard is busy or unavailable".to_string());
             }
 
             let result = if IsClipboardFormatAvailable(CF_DIB) != 0 {
