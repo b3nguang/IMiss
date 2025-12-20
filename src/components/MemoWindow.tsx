@@ -4,6 +4,7 @@ import { confirm } from "@tauri-apps/plugin-dialog";
 import { tauriApi } from "../api/tauri";
 import type { MemoItem } from "../types";
 import { formatFullDateTime } from "../utils/dateUtils";
+import { useWindowClose } from "../hooks/useWindowClose";
 
 export function MemoWindow() {
   const [memos, setMemos] = useState<MemoItem[]>([]);
@@ -22,10 +23,7 @@ export function MemoWindow() {
     }
   };
 
-  const handleClose = useCallback(async () => {
-    const window = getCurrentWindow();
-    await window.close();
-  }, []);
+  const handleClose = useWindowClose();
 
   const handleHide = useCallback(async () => {
     const window = getCurrentWindow();

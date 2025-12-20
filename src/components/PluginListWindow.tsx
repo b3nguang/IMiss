@@ -5,12 +5,10 @@ import type { PluginContext } from "../types";
 import { tauriApi } from "../api/tauri";
 import { AppCenterContent } from "./AppCenterContent";
 import { useEscapeKey } from "../hooks/useEscapeKey";
+import { useWindowClose } from "../hooks/useWindowClose";
 
 export function PluginListWindow() {
-  const handleClose = useCallback(async () => {
-    const window = getCurrentWindow();
-    await window.close();
-  }, []);
+  const handleClose = useWindowClose();
 
   // 处理插件点击
   const handlePluginClick = async (pluginId: string) => {

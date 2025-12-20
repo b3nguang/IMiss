@@ -3,6 +3,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, confirm, message } from "@tauri-apps/plugin-dialog";
 import { tauriApi } from "../api/tauri";
 import { useEscapeKey } from "../hooks/useEscapeKey";
+import { useWindowClose } from "../hooks/useWindowClose";
 
 interface ReplaceResult {
   filePath: string;
@@ -27,10 +28,7 @@ export function FileToolboxWindow() {
   const [replaceFileName, setReplaceFileName] = useState(true);
 
   // Esc 键关闭窗口
-  const handleCloseWindow = useCallback(async () => {
-    const window = getCurrentWindow();
-    await window.close();
-  }, []);
+  const handleCloseWindow = useWindowClose();
 
   useEscapeKey(handleCloseWindow);
 

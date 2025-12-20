@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { tauriApi } from "../api/tauri";
 import { useEscapeKey } from "../hooks/useEscapeKey";
+import { useWindowClose } from "../hooks/useWindowClose";
 
 interface ColorFormat {
   hex: string;
@@ -37,9 +38,7 @@ export function ColorPickerWindow() {
   }, [currentWindow]);
 
   // Esc 键关闭窗口
-  const handleClose = useCallback(async () => {
-    await currentWindow.close();
-  }, [currentWindow]);
+  const handleClose = useWindowClose();
 
   useEscapeKey(handleClose);
 

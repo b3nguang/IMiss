@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { tauriApi } from "../api/tauri";
 import type { EverythingResult, FilePreview } from "../types";
 import { formatStandardDateTime } from "../utils/dateUtils";
+import { useWindowClose } from "../hooks/useWindowClose";
 
 type SortKey = "size" | "type" | "name";
 type SortOrder = "asc" | "desc";
@@ -939,10 +940,7 @@ export function EverythingSearchWindow() {
     }
   }, []);
 
-  const handleClose = useCallback(async () => {
-    const window = getCurrentWindow();
-    await window.close();
-  }, []);
+  const handleClose = useWindowClose();
 
   const handleRevealInFolder = useCallback(async (result: EverythingResult) => {
     try {

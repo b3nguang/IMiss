@@ -385,7 +385,7 @@ export function TranslationPanel({
               // ESC 键关闭窗口
               e.preventDefault();
               e.stopPropagation();
-              const window = await getCurrentWindow();
+              const window = getCurrentWindow();
               await window.close();
             }
           }}

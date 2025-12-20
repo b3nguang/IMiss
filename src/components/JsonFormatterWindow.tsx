@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import Editor from "@monaco-editor/react";
 import type { editor } from "monaco-editor";
 import { useEscapeKey } from "../hooks/useEscapeKey";
+import { useWindowClose } from "../hooks/useWindowClose";
 
 type JsonValue = string | number | boolean | null | JsonObject | JsonArray;
 type JsonObject = { [key: string]: JsonValue };
@@ -602,10 +603,7 @@ export function JsonFormatterWindow() {
   };
 
   // ESC 键关闭窗口
-  const handleClose = useCallback(async () => {
-    const window = getCurrentWindow();
-    await window.close();
-  }, []);
+  const handleClose = useWindowClose();
 
   useEscapeKey(handleClose);
 

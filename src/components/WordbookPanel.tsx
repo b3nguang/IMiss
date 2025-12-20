@@ -663,13 +663,19 @@ export function WordbookPanel({ ollamaSettings, onRefresh }: WordbookPanelProps)
               </button>
             </div>
             <div className="flex-1 overflow-y-auto mb-4">
-              {isAiExplanationLoading ? (
+              {isAiExplanationLoading && !aiExplanationText ? (
                 <div className="flex flex-col items-center justify-center h-full text-gray-500">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"></div>
                   <div>AI正在生成解释...</div>
                 </div>
               ) : (
                 <div className="prose max-w-none">
+                  {isAiExplanationLoading && (
+                    <div className="flex items-center gap-2 mb-2 text-sm text-gray-500">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                      <span>AI正在生成解释...</span>
+                    </div>
+                  )}
                   <div className="text-gray-700 whitespace-pre-wrap leading-relaxed">
                     {aiExplanationText || "暂无解释内容"}
                   </div>

@@ -4,6 +4,7 @@ import { tauriApi } from "../api/tauri";
 import { useEscapeKeyWithPriority } from "../hooks/useEscapeKeyWithPriority";
 import { TranslationPanel } from "./TranslationPanel";
 import { WordbookPanel } from "./WordbookPanel";
+import { useWindowClose } from "../hooks/useWindowClose";
 
 type TabType = "translation" | "wordbook";
 
@@ -86,10 +87,7 @@ export function TranslationWindow() {
   }, []);
 
   // ESC 键关闭窗口或设置对话框（带优先级）
-  const handleCloseWindow = useCallback(async () => {
-    const window = getCurrentWindow();
-    await window.close();
-  }, []);
+  const handleCloseWindow = useWindowClose();
 
   useEscapeKeyWithPriority([
     {

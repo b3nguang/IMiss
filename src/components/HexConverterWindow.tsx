@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEscapeKey } from "../hooks/useEscapeKey";
+import { useWindowClose } from "../hooks/useWindowClose";
 
 type ConversionMode = "ascii-to-hex" | "hex-to-ascii";
 
@@ -21,9 +22,7 @@ export function HexConverterWindow() {
   }, [currentWindow]);
 
   // Esc 键关闭窗口
-  const handleClose = useCallback(async () => {
-    await currentWindow.close();
-  }, [currentWindow]);
+  const handleClose = useWindowClose();
 
   useEscapeKey(handleClose);
 

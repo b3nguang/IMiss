@@ -4,6 +4,7 @@ import { confirm } from "@tauri-apps/plugin-dialog";
 import { tauriApi } from "../api/tauri";
 import type { ClipboardItem } from "../types";
 import { formatRelativeTime, formatFullDateTime } from "../utils/dateUtils";
+import { useWindowClose } from "../hooks/useWindowClose";
 
 export function ClipboardWindow() {
   const [clipboardItems, setClipboardItems] = useState<ClipboardItem[]>([]);
@@ -180,10 +181,7 @@ export function ClipboardWindow() {
     setFilteredItems(filtered);
   }, [searchQuery, contentTypeFilter, clipboardItems]);
 
-  const handleClose = useCallback(async () => {
-    const window = getCurrentWindow();
-    await window.close();
-  }, []);
+  const handleClose = useWindowClose();
 
   const handleCopyToClipboard = async (item: ClipboardItem) => {
     try {

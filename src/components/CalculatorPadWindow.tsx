@@ -3,6 +3,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { create, all } from "mathjs";
 import { useEscapeKey } from "../hooks/useEscapeKey";
+import { useWindowClose } from "../hooks/useWindowClose";
 
 interface CalculationLine {
   id: string;
@@ -292,10 +293,7 @@ export function CalculatorPadWindow() {
   };
 
   // ESC 键关闭窗口
-  const handleClose = useCallback(async () => {
-    const window = getCurrentWindow();
-    await window.close();
-  }, []);
+  const handleClose = useWindowClose();
 
   useEscapeKey(handleClose);
 
