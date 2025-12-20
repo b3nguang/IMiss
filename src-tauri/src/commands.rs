@@ -13,6 +13,7 @@ use crate::hooks;
 use crate::memos;
 use crate::open_history;
 use crate::plugin_usage;
+use crate::word_records;
 use crate::recording::{RecordingMeta, RecordingState};
 use crate::replay::ReplayState;
 use crate::settings;
@@ -2016,6 +2017,82 @@ pub fn delete_memo(id: String, app: tauri::AppHandle) -> Result<(), String> {
 pub fn search_memos(query: String, app: tauri::AppHandle) -> Result<Vec<memos::MemoItem>, String> {
     let app_data_dir = get_app_data_dir(&app)?;
     memos::search_memos(&query, &app_data_dir)
+}
+
+// ===== Word Record commands =====
+
+#[tauri::command]
+pub fn get_all_word_records(app: tauri::AppHandle) -> Result<Vec<word_records::WordRecord>, String> {
+    let app_data_dir = get_app_data_dir(&app)?;
+    word_records::get_all_word_records(&app_data_dir)
+}
+
+#[tauri::command]
+pub fn add_word_record(
+    word: String,
+    translation: String,
+    source_lang: String,
+    target_lang: String,
+    context: Option<String>,
+    phonetic: Option<String>,
+    example_sentence: Option<String>,
+    tags: Vec<String>,
+    app: tauri::AppHandle,
+) -> Result<word_records::WordRecord, String> {
+    let app_data_dir = get_app_data_dir(&app)?;
+    word_records::add_word_record(
+        word,
+        translation,
+        source_lang,
+        target_lang,
+        context,
+        phonetic,
+        example_sentence,
+        tags,
+        &app_data_dir,
+    )
+}
+
+#[tauri::command]
+pub fn update_word_record(
+    id: String,
+    word: Option<String>,
+    translation: Option<String>,
+    context: Option<String>,
+    phonetic: Option<String>,
+    example_sentence: Option<String>,
+    tags: Option<Vec<String>>,
+    mastery_level: Option<i32>,
+    is_favorite: Option<bool>,
+    is_mastered: Option<bool>,
+    app: tauri::AppHandle,
+) -> Result<word_records::WordRecord, String> {
+    let app_data_dir = get_app_data_dir(&app)?;
+    word_records::update_word_record(
+        id,
+        word,
+        translation,
+        context,
+        phonetic,
+        example_sentence,
+        tags,
+        mastery_level,
+        is_favorite,
+        is_mastered,
+        &app_data_dir,
+    )
+}
+
+#[tauri::command]
+pub fn delete_word_record(id: String, app: tauri::AppHandle) -> Result<(), String> {
+    let app_data_dir = get_app_data_dir(&app)?;
+    word_records::delete_word_record(id, &app_data_dir)
+}
+
+#[tauri::command]
+pub fn search_word_records(query: String, app: tauri::AppHandle) -> Result<Vec<word_records::WordRecord>, String> {
+    let app_data_dir = get_app_data_dir(&app)?;
+    word_records::search_word_records(&query, &app_data_dir)
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -4677,6 +4754,32 @@ pub async fn show_translation_window(app: tauri::AppHandle) -> Result<(), String
         .center()
         .build()
         .map_err(|e| format!("创建翻译窗口失败: {}", e))?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn show_word_record_window(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+
+    // 尝试获取现有窗口
+    if let Some(window) = app.get_webview_window("word-record-window") {
+        show_and_focus_window(&window)?;
+    } else {
+        // 动态创建窗口
+        let window = tauri::WebviewWindowBuilder::new(
+            &app,
+            "word-record-window",
+            tauri::WebviewUrl::App("index.html".into()),
+        )
+        .title("单词本")
+        .inner_size(800.0, 600.0)
+        .resizable(true)
+        .min_inner_size(600.0, 400.0)
+        .center()
+        .build()
+        .map_err(|e| format!("创建单词本窗口失败: {}", e))?;
     }
 
     Ok(())

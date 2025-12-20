@@ -155,6 +155,25 @@ export interface MemoItem {
   updated_at: number;
 }
 
+export interface WordRecord {
+  id: string;
+  word: string;
+  translation: string;
+  sourceLang: string;
+  targetLang: string;
+  context?: string | null;
+  phonetic?: string | null;
+  exampleSentence?: string | null;
+  tags: string[];
+  masteryLevel: number;
+  reviewCount: number;
+  lastReviewed?: number | null;
+  createdAt: number;
+  updatedAt: number;
+  isFavorite: boolean;
+  isMastered: boolean;
+}
+
 // 插件系统类型定义
 export interface PluginContext {
   // 可以传递给插件执行函数的上下文信息

@@ -16,6 +16,7 @@ import TranslationApp from "./TranslationApp";
 import { HexConverterApp } from "./HexConverterApp";
 import { ColorPickerApp } from "./ColorPickerApp";
 import ClipboardApp from "./ClipboardApp";
+import WordRecordApp from "./WordRecordApp";
 import { initializePlugins } from "./plugins";
 import { trackEvent } from "./api/events";
 import "./styles.css";
@@ -158,6 +159,13 @@ async function initApp() {
         </StrictMode>
       );
       console.log("[初始化] ClipboardApp 已渲染");
+    } else if (label === "word-record-window") {
+      ReactDOM.createRoot(root).render(
+        <StrictMode>
+          <WordRecordApp />
+        </StrictMode>
+      );
+      console.log("[初始化] WordRecordApp 已渲染");
     } else if (label === "recording-window" || label === "main") {
       ReactDOM.createRoot(root).render(
         <StrictMode>

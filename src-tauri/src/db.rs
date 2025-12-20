@@ -162,6 +162,29 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         );
         CREATE INDEX IF NOT EXISTS idx_clipboard_history_created_at ON clipboard_history(created_at);
         CREATE INDEX IF NOT EXISTS idx_clipboard_history_is_favorite ON clipboard_history(is_favorite);
+
+        CREATE TABLE IF NOT EXISTS word_records (
+            id TEXT PRIMARY KEY,
+            word TEXT NOT NULL,
+            translation TEXT NOT NULL,
+            source_lang TEXT NOT NULL,
+            target_lang TEXT NOT NULL,
+            context TEXT,
+            phonetic TEXT,
+            example_sentence TEXT,
+            tags TEXT,
+            mastery_level INTEGER DEFAULT 0,
+            review_count INTEGER DEFAULT 0,
+            last_reviewed INTEGER,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            is_favorite INTEGER DEFAULT 0,
+            is_mastered INTEGER DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_word_records_word ON word_records(word);
+        CREATE INDEX IF NOT EXISTS idx_word_records_created_at ON word_records(created_at);
+        CREATE INDEX IF NOT EXISTS idx_word_records_mastery_level ON word_records(mastery_level);
+        CREATE INDEX IF NOT EXISTS idx_word_records_is_favorite ON word_records(is_favorite);
     "#,
     )
     .map_err(|e| format!("Failed to run database migrations: {}", e))?;

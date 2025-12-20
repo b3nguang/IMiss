@@ -23,6 +23,7 @@ mod shortcuts;
 mod system_folders_search;
 mod window_config;
 mod clipboard;
+mod word_records;
 
 use crate::commands::get_app_data_dir;
 use commands::*;
@@ -683,6 +684,11 @@ fn main() {
             update_memo,
             delete_memo,
             search_memos,
+            get_all_word_records,
+            add_word_record,
+            update_word_record,
+            delete_word_record,
+            search_word_records,
             show_shortcuts_config,
             show_main_window,
             open_url,
@@ -697,6 +703,7 @@ fn main() {
             show_plugin_list_window,
             show_json_formatter_window,
             show_translation_window,
+            show_word_record_window,
             show_hex_converter_window,
             // show_color_picker_window,  // 暂时屏蔽，待优化
             // pick_color_from_screen,     // 暂时屏蔽，待优化

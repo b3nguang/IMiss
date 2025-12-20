@@ -16,6 +16,7 @@ import type {
   DatabaseHealthStatus,
   ClipboardItem,
   OpenHistoryItem,
+  WordRecord,
 } from "../types";
 
 export const tauriApi = {
@@ -644,6 +645,71 @@ export const tauriApi = {
 
   async copyImageToClipboard(imagePath: string): Promise<void> {
     return invoke("copy_image_to_clipboard", { imagePath });
+  },
+
+  // Word Record APIs
+  async getAllWordRecords(): Promise<WordRecord[]> {
+    return invoke("get_all_word_records");
+  },
+
+  async addWordRecord(
+    word: string,
+    translation: string,
+    sourceLang: string,
+    targetLang: string,
+    context?: string | null,
+    phonetic?: string | null,
+    exampleSentence?: string | null,
+    tags?: string[]
+  ): Promise<WordRecord> {
+    return invoke("add_word_record", {
+      word,
+      translation,
+      sourceLang,
+      targetLang,
+      context,
+      phonetic,
+      exampleSentence,
+      tags: tags || [],
+    });
+  },
+
+  async updateWordRecord(
+    id: string,
+    word?: string | null,
+    translation?: string | null,
+    context?: string | null,
+    phonetic?: string | null,
+    exampleSentence?: string | null,
+    tags?: string[] | null,
+    masteryLevel?: number | null,
+    isFavorite?: boolean | null,
+    isMastered?: boolean | null
+  ): Promise<WordRecord> {
+    return invoke("update_word_record", {
+      id,
+      word,
+      translation,
+      context,
+      phonetic,
+      exampleSentence,
+      tags,
+      masteryLevel,
+      isFavorite,
+      isMastered,
+    });
+  },
+
+  async deleteWordRecord(id: string): Promise<void> {
+    return invoke("delete_word_record", { id });
+  },
+
+  async searchWordRecords(query: string): Promise<WordRecord[]> {
+    return invoke("search_word_records", { query });
+  },
+
+  async showWordRecordWindow(): Promise<void> {
+    return invoke("show_word_record_window");
   },
 };
 
