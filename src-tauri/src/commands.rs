@@ -899,283 +899,244 @@ pub async fn search_applications(
     
     eprintln!("[搜索应用] 搜索完成: 结果数量={}", results.len());
     
-    // 在后台异步提取图标，提取完成后通过事件通知前端刷新
+    // 优化：先返回搜索结果，图标提取完全在后台异步执行，不阻塞搜索返回
+    // 克隆需要的数据用于后台线程
+    let results_clone = results.clone();
     let cache_clone = cache.clone();
     let app_handle_for_emit = app_handle_clone.clone();
     let app_handle_for_save = app_handle_clone.clone();
     
-    // #region agent log
-    use std::fs::OpenOptions;
-    use std::io::Write;
-    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(r"d:\project\re-fast\.cursor\debug.log") {
-        let _ = writeln!(file, r#"{{"id":"log_extract_icons_1","timestamp":{},"location":"commands.rs:768","message":"extract_icons_for_results entry","data":{{"results_count":{},"results_with_icons":{},"results_without_icons":{}}},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}}"#, 
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(),
-            results.len(),
-            results.iter().filter(|r| r.icon.is_some()).count(),
-            results.iter().filter(|r| r.icon.is_none()).count());
-        // 记录前5个没有图标的应用的路径
-        for (idx, r) in results.iter().filter(|r| r.icon.is_none()).take(5).enumerate() {
-            let _ = writeln!(file, r#"{{"id":"log_extract_icons_2","timestamp":{},"location":"commands.rs:775","message":"result without icon","data":{{"idx":{},"name":"{}","path":"{}"}},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}}"#, 
+    // 在后台线程中异步处理图标提取，不阻塞搜索返回
+    std::thread::spawn(move || {
+        // #region agent log
+        use std::fs::OpenOptions;
+        use std::io::Write;
+        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(r"d:\project\re-fast\.cursor\debug.log") {
+            let _ = writeln!(file, r#"{{"id":"log_extract_icons_1","timestamp":{},"location":"commands.rs:902","message":"extract_icons_for_results entry","data":{{"results_count":{},"results_with_icons":{},"results_without_icons":{}}},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}}"#, 
                 std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(),
-                idx, r.name, r.path);
+                results_clone.len(),
+                results_clone.iter().filter(|r| r.icon.is_some()).count(),
+                results_clone.iter().filter(|r| r.icon.is_none()).count());
         }
-    }
-    // #endregion
-    
-    // 筛选出缺少图标的应用，并去重
-    eprintln!("[图标提取] 开始筛选缺少图标的应用: 搜索结果总数={}", results.len());
-    let results_with_icons = results.iter().filter(|r| r.icon.is_some()).count();
-    let results_without_icons = results.iter().filter(|r| r.icon.is_none()).count();
-    eprintln!("[图标提取] 搜索结果统计: 有图标={}, 缺少图标={}", results_with_icons, results_without_icons);
-    
-    // 筛选出缺少图标的应用，同时检查缓存中是否已标记为失败
-    let mut results_paths: Vec<String> = {
-        let cache_guard_for_filter = cache_clone.lock().ok();
-        results
-            .iter()
-            .filter(|r| {
-                // 先检查搜索结果中的 icon 字段
-                let missing_icon_in_result = r.icon.is_none();
-                
-                // 如果搜索结果中没有图标，再检查缓存中是否已标记为失败
-                if missing_icon_in_result {
-                    // 检查缓存中是否已标记为失败
-                    if let Some(ref guard) = cache_guard_for_filter {
-                        if let Some(ref apps_arc) = **guard {
-                            if let Some(app) = apps_arc.iter().find(|a| a.path == r.path) {
-                                if app_search::windows::is_icon_extraction_failed(&app.icon) {
-                                    eprintln!("[图标提取] 搜索结果中缺少图标，但缓存中已标记为失败，跳过: name={}, path={}", r.name, r.path);
-                                    return false; // 已标记为失败，跳过
-                                }
-                                if !app_search::windows::needs_icon_extraction(&app.icon) {
-                                    eprintln!("[图标提取] 搜索结果中缺少图标，但缓存中已有图标，跳过: name={}, path={}", r.name, r.path);
-                                    return false; // 缓存中已有图标，跳过
+        // #endregion
+        
+        // 筛选出缺少图标的应用，并去重（在后台线程中执行，不阻塞搜索返回）
+        eprintln!("[图标提取] 开始筛选缺少图标的应用: 搜索结果总数={}", results_clone.len());
+        let results_with_icons = results_clone.iter().filter(|r| r.icon.is_some()).count();
+        let results_without_icons = results_clone.iter().filter(|r| r.icon.is_none()).count();
+        eprintln!("[图标提取] 搜索结果统计: 有图标={}, 缺少图标={}", results_with_icons, results_without_icons);
+        
+        // 筛选出缺少图标的应用，同时检查缓存中是否已标记为失败
+        let mut results_paths: Vec<String> = {
+            let cache_guard_for_filter = cache_clone.lock().ok();
+            results_clone
+                .iter()
+                .filter(|r| {
+                    // 先检查搜索结果中的 icon 字段
+                    let missing_icon_in_result = r.icon.is_none();
+                    
+                    // 如果搜索结果中没有图标，再检查缓存中是否已标记为失败
+                    if missing_icon_in_result {
+                        // 检查缓存中是否已标记为失败
+                        if let Some(ref guard) = cache_guard_for_filter {
+                            if let Some(ref apps_arc) = **guard {
+                                if let Some(app) = apps_arc.iter().find(|a| a.path == r.path) {
+                                    if app_search::windows::is_icon_extraction_failed(&app.icon) {
+                                        eprintln!("[图标提取] 搜索结果中缺少图标，但缓存中已标记为失败，跳过: name={}, path={}", r.name, r.path);
+                                        return false; // 已标记为失败，跳过
+                                    }
+                                    if !app_search::windows::needs_icon_extraction(&app.icon) {
+                                        eprintln!("[图标提取] 搜索结果中缺少图标，但缓存中已有图标，跳过: name={}, path={}", r.name, r.path);
+                                        return false; // 缓存中已有图标，跳过
+                                    }
                                 }
                             }
                         }
-                    }
-                    eprintln!("[图标提取] 搜索结果缺少图标: name={}, path={}", r.name, r.path);
-                    true
-                } else {
-                    false
-                }
-            })
-            .map(|r| r.path.clone())
-            .collect()
-        // cache_guard_for_filter 在这里自动释放
-    };
-    
-    eprintln!("[图标提取] 筛选完成: 缺少图标的应用数量={}", results_paths.len());
-    
-    // 去重：移除重复的路径
-    let before_dedup_count = results_paths.len();
-    eprintln!("[图标提取] 开始去重: 去重前路径数量={}", before_dedup_count);
-    
-    if before_dedup_count > 0 {
-        eprintln!("[图标提取] 去重前的路径列表:");
-        for (idx, path) in results_paths.iter().enumerate() {
-            eprintln!("[图标提取]   [{}/{}] {}", idx + 1, before_dedup_count, path);
-        }
-    }
-    
-    results_paths.sort();
-    results_paths.dedup();
-    let after_dedup_count = results_paths.len();
-    
-    eprintln!("[图标提取] 去重完成: 去重前={}, 去重后={}, 移除重复={}", 
-        before_dedup_count, after_dedup_count, before_dedup_count - after_dedup_count);
-    
-    if after_dedup_count > 0 {
-        eprintln!("[图标提取] 去重后的路径列表:");
-        for (idx, path) in results_paths.iter().enumerate() {
-            eprintln!("[图标提取]   [{}/{}] {}", idx + 1, after_dedup_count, path);
-        }
-    }
-    
-    // #region agent log
-    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(r"d:\project\re-fast\.cursor\debug.log") {
-        let _ = writeln!(file, r#"{{"id":"log_extract_icons_3","timestamp":{},"location":"commands.rs:782","message":"results_paths collected","data":{{"paths_count":{}}},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}}"#, 
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(),
-            results_paths.len());
-        for (idx, path) in results_paths.iter().take(5).enumerate() {
-            let _ = writeln!(file, r#"{{"id":"log_extract_icons_4","timestamp":{},"location":"commands.rs:786","message":"path to extract icon","data":{{"idx":{},"path":"{}"}},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}}"#, 
-                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(),
-                idx, path);
-        }
-    }
-    // #endregion
-    
-    if !results_paths.is_empty() {
-        std::thread::spawn(move || {
-            // #region agent log
-            if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(r"d:\project\re-fast\.cursor\debug.log") {
-                let _ = writeln!(file, r#"{{"id":"log_extract_icons_5","timestamp":{},"location":"commands.rs:794","message":"icon extraction thread started","data":{{"paths_count":{}}},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}}"#, 
-                    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(),
-                    results_paths.len());
-            }
-            // #endregion
-            
-            // 先检查缓存中是否已有图标，避免重复提取
-            let mut paths_to_extract: Vec<String> = {
-                let cache_guard = cache_clone.lock().ok();
-                if let Some(guard) = cache_guard {
-                    if let Some(ref apps_arc) = *guard {
-                        // 过滤出缓存中确实没有图标的应用（排除已标记为失败的应用）
-                        results_paths.iter()
-                            .filter(|path_str| {
-                                let need_extract: bool = apps_arc.iter()
-                                    .find(|a| a.path == **path_str)
-                                    .map(|a| {
-                                        let needs_extract = app_search::windows::needs_icon_extraction(&a.icon);
-                                        if needs_extract {
-                                            eprintln!("[图标提取] 缓存中缺少图标: path={}", path_str);
-                                        } else if app_search::windows::is_icon_extraction_failed(&a.icon) {
-                                            eprintln!("[图标提取] 缓存中已标记为提取失败，跳过: path={}", path_str);
-                                        } else {
-                                            eprintln!("[图标提取] 缓存中已有图标，跳过: path={}", path_str);
-                                        }
-                                        needs_extract
-                                    })
-                                    .unwrap_or_else(|| {
-                                        eprintln!("[图标提取] 缓存中未找到应用，需要提取: path={}", path_str);
-                                        true // 如果找不到应用，需要提取
-                                    });
-                                need_extract
-                            })
-                            .cloned()
-                            .collect()
+                        eprintln!("[图标提取] 搜索结果缺少图标: name={}, path={}", r.name, r.path);
+                        true
                     } else {
-                        eprintln!("[图标提取] 缓存为空，需要提取所有图标: paths_count={}", results_paths.len());
-                        results_paths
+                        false
                     }
+                })
+                .map(|r| r.path.clone())
+                .collect()
+            // cache_guard_for_filter 在这里自动释放
+        };
+        
+        eprintln!("[图标提取] 筛选完成: 缺少图标的应用数量={}", results_paths.len());
+        
+        // 去重：移除重复的路径
+        results_paths.sort();
+        results_paths.dedup();
+        
+        // #region agent log
+        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(r"d:\project\re-fast\.cursor\debug.log") {
+            let _ = writeln!(file, r#"{{"id":"log_extract_icons_3","timestamp":{},"location":"commands.rs:950","message":"results_paths collected","data":{{"paths_count":{}}},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}}"#, 
+                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(),
+                results_paths.len());
+        }
+        // #endregion
+        
+        // 先检查缓存中是否已有图标，避免重复提取
+        let mut paths_to_extract: Vec<String> = {
+            let cache_guard = cache_clone.lock().ok();
+            if let Some(guard) = cache_guard {
+                if let Some(ref apps_arc) = *guard {
+                    // 过滤出缓存中确实没有图标的应用（排除已标记为失败的应用）
+                    results_paths.iter()
+                        .filter(|path_str| {
+                            let need_extract: bool = apps_arc.iter()
+                                .find(|a| a.path == **path_str)
+                                .map(|a| {
+                                    let needs_extract = app_search::windows::needs_icon_extraction(&a.icon);
+                                    if needs_extract {
+                                        eprintln!("[图标提取] 缓存中缺少图标: path={}", path_str);
+                                    } else if app_search::windows::is_icon_extraction_failed(&a.icon) {
+                                        eprintln!("[图标提取] 缓存中已标记为提取失败，跳过: path={}", path_str);
+                                    } else {
+                                        eprintln!("[图标提取] 缓存中已有图标，跳过: path={}", path_str);
+                                    }
+                                    needs_extract
+                                })
+                                .unwrap_or_else(|| {
+                                    eprintln!("[图标提取] 缓存中未找到应用，需要提取: path={}", path_str);
+                                    true // 如果找不到应用，需要提取
+                                });
+                            need_extract
+                        })
+                        .cloned()
+                        .collect()
                 } else {
-                    eprintln!("[图标提取] 无法获取缓存锁，需要提取所有图标: paths_count={}", results_paths.len());
+                    eprintln!("[图标提取] 缓存为空，需要提取所有图标: paths_count={}", results_paths.len());
                     results_paths
                 }
+            } else {
+                eprintln!("[图标提取] 无法获取缓存锁，需要提取所有图标: paths_count={}", results_paths.len());
+                results_paths
+            }
+        };
+        
+        // 再次去重，确保没有重复路径（防止并发情况下的重复提取）
+        let before_final_dedup = paths_to_extract.len();
+        paths_to_extract.sort();
+        paths_to_extract.dedup();
+        let after_final_dedup = paths_to_extract.len();
+        if before_final_dedup != after_final_dedup {
+            eprintln!("[图标提取] 最终去重：去重前: {}, 去重后: {}, 移除重复: {}", 
+                before_final_dedup, after_final_dedup, before_final_dedup - after_final_dedup);
+        }
+        
+        if paths_to_extract.is_empty() {
+            eprintln!("[图标提取] 所有应用的图标都在缓存中，无需提取");
+            return;
+        }
+        
+        eprintln!("[图标提取] 需要提取图标的应用数量: {}", paths_to_extract.len());
+        
+        // 先提取所有图标（不持有锁），避免阻塞搜索操作
+        let mut icon_updates: Vec<(String, String)> = Vec::new(); // (path, icon_data)
+        let mut failed_paths: Vec<String> = Vec::new(); // 记录提取失败的路径
+        
+        for (idx, path_str) in paths_to_extract.iter().enumerate() {
+            eprintln!("[图标提取] 开始提取图标 [{}/{}]: path={}", idx + 1, paths_to_extract.len(), path_str);
+            
+            let path_lower = path_str.to_lowercase();
+            let icon = if path_lower.starts_with("shell:appsfolder\\") {
+                // #region agent log
+                use std::fs::OpenOptions;
+                use std::io::Write;
+                if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(r"d:\project\re-fast\.cursor\debug.log") {
+                    let _ = writeln!(file, r#"{{"id":"log_uwp_icon_cmd_1","timestamp":{},"location":"commands.rs:781","message":"extracting icon for UWP app","data":{{"path":"{}"}},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}}"#, 
+                        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(), path_str);
+                }
+                // #endregion
+                // UWP app - extract icon using special method
+                let icon_result = app_search::windows::extract_uwp_app_icon_base64(&path_str);
+                // #region agent log
+                if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(r"d:\project\re-fast\.cursor\debug.log") {
+                    let icon_success = icon_result.is_some();
+                    let icon_len = icon_result.as_ref().map(|s| s.len()).unwrap_or(0);
+                    let _ = writeln!(file, r#"{{"id":"log_uwp_icon_cmd_2","timestamp":{},"location":"commands.rs:785","message":"icon extraction result","data":{{"path":"{}","success":{},"icon_len":{}}},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}}"#, 
+                        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(), 
+                        path_str, icon_success, icon_len);
+                }
+                // #endregion
+                icon_result
+            } else {
+                let path = std::path::Path::new(&path_str);
+                let ext = path
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .map(|s| s.to_lowercase());
+                if ext == Some("lnk".to_string()) {
+                    app_search::windows::extract_lnk_icon_base64(path)
+                } else if ext == Some("exe".to_string()) {
+                    app_search::windows::extract_icon_base64(path)
+                } else if ext == Some("msc".to_string()) {
+                    // .msc 文件（Microsoft Management Console）使用 Shell API 提取图标
+                    app_search::windows::extract_icon_png_via_shell(path, 32)
+                } else if ext == Some("url".to_string()) {
+                    // .url 文件（Internet Shortcut）使用专门的解析和提取方法
+                    app_search::windows::extract_url_icon_base64(path)
+                } else {
+                    None
+                }
             };
-            
-            // 再次去重，确保没有重复路径（防止并发情况下的重复提取）
-            let before_final_dedup = paths_to_extract.len();
-            paths_to_extract.sort();
-            paths_to_extract.dedup();
-            let after_final_dedup = paths_to_extract.len();
-            if before_final_dedup != after_final_dedup {
-                eprintln!("[图标提取] 最终去重：去重前: {}, 去重后: {}, 移除重复: {}", 
-                    before_final_dedup, after_final_dedup, before_final_dedup - after_final_dedup);
-            }
-            
-            if paths_to_extract.is_empty() {
-                eprintln!("[图标提取] 所有应用的图标都在缓存中，无需提取");
-                return;
-            }
-            
-            eprintln!("[图标提取] 需要提取图标的应用数量: {}", paths_to_extract.len());
-            
-            // 先提取所有图标（不持有锁），避免阻塞搜索操作
-            let mut icon_updates: Vec<(String, String)> = Vec::new(); // (path, icon_data)
-            let mut failed_paths: Vec<String> = Vec::new(); // 记录提取失败的路径
-            
-            for (idx, path_str) in paths_to_extract.iter().enumerate() {
-                eprintln!("[图标提取] 开始提取图标 [{}/{}]: path={}", idx + 1, paths_to_extract.len(), path_str);
-                
-                let path_lower = path_str.to_lowercase();
-                let icon = if path_lower.starts_with("shell:appsfolder\\") {
-                    // #region agent log
-                    use std::fs::OpenOptions;
-                    use std::io::Write;
-                    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(r"d:\project\re-fast\.cursor\debug.log") {
-                        let _ = writeln!(file, r#"{{"id":"log_uwp_icon_cmd_1","timestamp":{},"location":"commands.rs:781","message":"extracting icon for UWP app","data":{{"path":"{}"}},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}}"#, 
-                            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(), path_str);
-                    }
-                    // #endregion
-                    // UWP app - extract icon using special method
-                    let icon_result = app_search::windows::extract_uwp_app_icon_base64(&path_str);
-                    // #region agent log
-                    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(r"d:\project\re-fast\.cursor\debug.log") {
-                        let icon_success = icon_result.is_some();
-                        let icon_len = icon_result.as_ref().map(|s| s.len()).unwrap_or(0);
-                        let _ = writeln!(file, r#"{{"id":"log_uwp_icon_cmd_2","timestamp":{},"location":"commands.rs:785","message":"icon extraction result","data":{{"path":"{}","success":{},"icon_len":{}}},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}}"#, 
-                            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis(), 
-                            path_str, icon_success, icon_len);
-                    }
-                    // #endregion
-                    icon_result
-                } else {
-                    let path = std::path::Path::new(&path_str);
-                    let ext = path
-                        .extension()
-                        .and_then(|s| s.to_str())
-                        .map(|s| s.to_lowercase());
-                    if ext == Some("lnk".to_string()) {
-                        app_search::windows::extract_lnk_icon_base64(path)
-                    } else if ext == Some("exe".to_string()) {
-                        app_search::windows::extract_icon_base64(path)
-                    } else if ext == Some("msc".to_string()) {
-                        // .msc 文件（Microsoft Management Console）使用 Shell API 提取图标
-                        app_search::windows::extract_icon_png_via_shell(path, 32)
-                    } else if ext == Some("url".to_string()) {
-                        // .url 文件（Internet Shortcut）使用专门的解析和提取方法
-                        app_search::windows::extract_url_icon_base64(path)
-                    } else {
-                        None
-                    }
-                };
 
-                if let Some(icon_data) = icon {
-                    icon_updates.push((path_str.clone(), icon_data));
-                    eprintln!("[图标提取] 提取成功: path={}", path_str);
-                } else {
-                    failed_paths.push(path_str.clone());
-                    eprintln!("[图标提取] 提取失败，将标记为失败: path={}", path_str);
-                }
+            if let Some(icon_data) = icon {
+                icon_updates.push((path_str.clone(), icon_data));
+                eprintln!("[图标提取] 提取成功: path={}", path_str);
+            } else {
+                failed_paths.push(path_str.clone());
+                eprintln!("[图标提取] 提取失败，将标记为失败: path={}", path_str);
             }
+        }
 
-            // 更新缓存：成功提取的图标和失败标记
-            if !icon_updates.is_empty() || !failed_paths.is_empty() {
-                let mut updated = false;
-                // Get current cache - 只在更新时持有锁，时间尽可能短
-                if let Ok(mut guard) = cache_clone.lock() {
-                    if let Some(ref apps_arc) = *guard {
-                        // 克隆 Vec 以便修改
-                        let mut apps: Vec<app_search::AppInfo> = (**apps_arc).clone();
-                        
-                        // 更新缓存中的图标（成功提取的）
-                        for (path_str, icon_data) in &icon_updates {
-                            if let Some(app) = apps.iter_mut().find(|a| a.path == *path_str) {
-                                app.icon = Some(icon_data.clone());
-                                updated = true;
-                            }
+        // 更新缓存：成功提取的图标和失败标记
+        if !icon_updates.is_empty() || !failed_paths.is_empty() {
+            let mut updated = false;
+            // Get current cache - 只在更新时持有锁，时间尽可能短
+            if let Ok(mut guard) = cache_clone.lock() {
+                if let Some(ref apps_arc) = *guard {
+                    // 克隆 Vec 以便修改
+                    let mut apps: Vec<app_search::AppInfo> = (**apps_arc).clone();
+                    
+                    // 更新缓存中的图标（成功提取的）
+                    for (path_str, icon_data) in &icon_updates {
+                        if let Some(app) = apps.iter_mut().find(|a| a.path == *path_str) {
+                            app.icon = Some(icon_data.clone());
+                            updated = true;
                         }
-                        
-                        // 标记提取失败的路径
-                        for path_str in &failed_paths {
-                            if let Some(app) = apps.iter_mut().find(|a| a.path == *path_str) {
-                                app.icon = Some(app_search::windows::ICON_EXTRACTION_FAILED_MARKER.to_string());
-                                updated = true;
-                                eprintln!("[图标提取] 已标记为提取失败: path={}", path_str);
-                            }
+                    }
+                    
+                    // 标记提取失败的路径
+                    for path_str in &failed_paths {
+                        if let Some(app) = apps.iter_mut().find(|a| a.path == *path_str) {
+                            app.icon = Some(app_search::windows::ICON_EXTRACTION_FAILED_MARKER.to_string());
+                            updated = true;
+                            eprintln!("[图标提取] 已标记为提取失败: path={}", path_str);
                         }
+                    }
 
-                        // Save to disk if updated
-                        if updated {
-                            // 更新缓存（用新的 Arc 替换）
-                            *guard = Some(Arc::new(apps.clone()));
-                            if let Ok(app_data_dir) = get_app_data_dir(&app_handle_for_save) {
-                                let _ = app_search::windows::save_cache(&app_data_dir, &apps);
-                            }
+                    // Save to disk if updated
+                    if updated {
+                        // 更新缓存（用新的 Arc 替换）
+                        *guard = Some(Arc::new(apps.clone()));
+                        if let Ok(app_data_dir) = get_app_data_dir(&app_handle_for_save) {
+                            let _ = app_search::windows::save_cache(&app_data_dir, &apps);
                         }
                     }
                 }
+            }
 
-                // 发送事件通知前端图标已更新（只发送成功提取的图标）
-                if !icon_updates.is_empty() {
-                    if let Err(e) = app_handle_for_emit.emit("app-icons-updated", icon_updates) {
-                        eprintln!("Failed to emit app-icons-updated event: {}", e);
-                    }
+            // 发送事件通知前端图标已更新（只发送成功提取的图标）
+            if !icon_updates.is_empty() {
+                if let Err(e) = app_handle_for_emit.emit("app-icons-updated", icon_updates) {
+                    eprintln!("Failed to emit app-icons-updated event: {}", e);
                 }
             }
-        });
-    }
+        }
+    });
 
     Ok(results)
 }

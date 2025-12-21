@@ -786,6 +786,9 @@ export function LauncherWindow({ updateInfo }: LauncherWindowProps) {
         if (isMounted) {
           const filteredApps = filterWindowsApps(allApps);
           setApps(filteredApps);
+          // 同时更新缓存，用于前端搜索
+          allAppsCacheRef.current = filteredApps;
+          allAppsCacheLoadedRef.current = true;
           // 不设置 filteredApps，等待用户输入查询时再设置
         }
       } catch (error) {
@@ -2725,11 +2728,13 @@ export function LauncherWindow({ updateInfo }: LauncherWindowProps) {
       combinedResultsUpdateTimeoutRef.current = null;
     }
     
-    // 延迟更新，等待所有搜索结果返回（100ms 延迟）
-    // 这样可以避免多个搜索结果异步返回时频繁重新排序
+    // 优化：如果有应用搜索结果，立即更新（0ms延迟），让应用列表快速显示
+    // 如果没有应用搜索结果，使用5ms延迟等待其他搜索结果
+    const delay = filteredApps.length > 0 ? 0 : 5;
+    
     combinedResultsUpdateTimeoutRef.current = setTimeout(() => {
       setDebouncedCombinedResults(combinedResults);
-    }, 100) as unknown as number;
+    }, delay) as unknown as number;
     
     return () => {
       if (combinedResultsUpdateTimeoutRef.current !== null) {
@@ -2737,7 +2742,7 @@ export function LauncherWindow({ updateInfo }: LauncherWindowProps) {
         combinedResultsUpdateTimeoutRef.current = null;
       }
     };
-  }, [combinedResults]);
+  }, [combinedResults, filteredApps.length]);
 
   // 使用 ref 来跟踪当前的 query，避免闭包问题
   const queryRef = useRef(query);
@@ -3761,6 +3766,10 @@ export function LauncherWindow({ updateInfo }: LauncherWindowProps) {
   const allFileHistoryCacheRef = useRef<FileHistoryItem[]>([]);
   const allFileHistoryCacheLoadedRef = useRef<boolean>(false);
 
+  // 应用列表缓存（前端搜索使用）
+  const allAppsCacheRef = useRef<AppInfo[]>([]);
+  const allAppsCacheLoadedRef = useRef<boolean>(false);
+
   // 检查是否包含中文字符（简化版，用于判断是否为拼音查询）
   const containsChinese = (str: string): boolean => {
     return /[\u4e00-\u9fa5]/.test(str);
@@ -3856,7 +3865,80 @@ export function LauncherWindow({ updateInfo }: LauncherWindowProps) {
     }
   };
 
-  // 主搜索函数：直接使用后端搜索
+  // 前端搜索应用（基于缓存的应用列表）- 异步分批处理，避免阻塞UI
+  const searchApplicationsFrontend = async (query: string, apps: AppInfo[]): Promise<AppInfo[]> => {
+    if (!query || query.trim() === "") {
+      // 返回前10个应用
+      return apps.slice(0, 10);
+    }
+
+    const queryLower = query.trim().toLowerCase();
+    const queryIsPinyin = !containsChinese(queryLower);
+
+    // 优化：直接同步处理，应用搜索的字符串匹配操作非常快，不需要分批处理
+    const scoredResults: Array<{ item: AppInfo; score: number }> = [];
+    
+    // 同步处理所有应用（对于342个应用的字符串匹配，通常只需要几毫秒）
+    for (const app of apps) {
+      let score = 0;
+      const nameLower = app.name.toLowerCase();
+
+      // 直接文本匹配（最高优先级）
+      if (nameLower === queryLower) {
+        score += 1000;
+      } else if (nameLower.startsWith(queryLower)) {
+        score += 500;
+      } else if (nameLower.includes(queryLower)) {
+        score += 100;
+      }
+
+      // 拼音匹配（如果查询是拼音，且应用有拼音字段）
+      if (queryIsPinyin && (app.name_pinyin || app.name_pinyin_initials)) {
+        // 拼音全拼匹配
+        if (app.name_pinyin) {
+          if (app.name_pinyin === queryLower) {
+            score += 800; // 高分数用于完整拼音匹配
+          } else if (app.name_pinyin.startsWith(queryLower)) {
+            score += 400;
+          } else if (app.name_pinyin.includes(queryLower)) {
+            score += 150;
+          }
+        }
+
+        // 拼音首字母匹配
+        if (app.name_pinyin_initials) {
+          if (app.name_pinyin_initials === queryLower) {
+            score += 600; // 高分数用于首字母匹配
+          } else if (app.name_pinyin_initials.startsWith(queryLower)) {
+            score += 300;
+          } else if (app.name_pinyin_initials.includes(queryLower)) {
+            score += 120;
+          }
+        }
+      }
+
+      // 描述匹配
+      if (score === 0 && app.description) {
+        const descLower = app.description.toLowerCase();
+        if (descLower.includes(queryLower)) {
+          score += 150;
+        }
+      }
+
+      if (score > 0) {
+        scoredResults.push({ item: app, score });
+      }
+    }
+
+    // 排序操作（同步执行，排序结果非常快）
+    // 按分数排序
+    scoredResults.sort((a, b) => b.score - a.score);
+    
+    // 限制结果数量并返回（最多返回50个）
+    return scoredResults.slice(0, 50).map((r) => r.item);
+  };
+
+  // 主搜索函数：优先使用前端搜索，如果缓存未加载则回退到后端搜索
   const searchApplications = async (searchQuery: string) => {
     try {
       // 清空旧结果，避免显示上一个搜索的结果
@@ -3866,13 +3948,52 @@ export function LauncherWindow({ updateInfo }: LauncherWindowProps) {
       if (!searchQuery || searchQuery.trim() === "") {
         return;
       }
-      
-      // 直接调用后端搜索（既搜索又触发图标提取）
-      const results = await tauriApi.searchApplications(searchQuery);
-      
+
+      // 如果缓存未加载，先尝试加载
+      if (!allAppsCacheLoadedRef.current || allAppsCacheRef.current.length === 0) {
+        // 如果 apps 状态已有数据，使用它
+        if (apps.length > 0) {
+          allAppsCacheRef.current = apps;
+          allAppsCacheLoadedRef.current = true;
+        } else {
+          // 否则尝试从后端加载
+          try {
+            const allApps = await tauriApi.scanApplications();
+            const filteredApps = filterWindowsApps(allApps);
+            allAppsCacheRef.current = filteredApps;
+            allAppsCacheLoadedRef.current = true;
+            setApps(filteredApps);
+          } catch (error) {
+            console.error("Failed to load applications for search:", error);
+            // 如果加载失败，回退到后端搜索
+            const results = await tauriApi.searchApplications(searchQuery);
+            if (query.trim() === searchQuery.trim()) {
+              setFilteredApps(results);
+            } else {
+              setFilteredApps([]);
+            }
+            return;
+          }
+        }
+      }
+
+      // 使用前端搜索（异步分批处理）
+      const results = await searchApplicationsFrontend(searchQuery, allAppsCacheRef.current);
+
       // 验证查询未改变，更新结果
       if (query.trim() === searchQuery.trim()) {
         setFilteredApps(results);
+        
+        // 检查是否有缺少图标的应用，触发图标提取（异步，不阻塞）
+        const appsWithoutIcons = results.filter(app => !app.icon);
+        if (appsWithoutIcons.length > 0) {
+          // 异步触发图标提取，不等待结果
+          tauriApi.searchApplications(searchQuery).catch((error) => {
+            console.warn("Background icon extraction failed:", error);
+          });
+        }
+      } else {
+        setFilteredApps([]);
       }
     } catch (error) {
       console.error("Search applications failed:", error);
@@ -3901,7 +4022,7 @@ export function LauncherWindow({ updateInfo }: LauncherWindowProps) {
             return updatedApps;
           });
 
-          // 同时更新 apps 缓存中的图标
+          // 同时更新 apps 状态和缓存中的图标
           setApps((prevApps) => {
             const updatedApps = prevApps.map((app) => {
               const iconUpdate = iconUpdates.find(([path]) => path === app.path);
@@ -3910,6 +4031,8 @@ export function LauncherWindow({ updateInfo }: LauncherWindowProps) {
               }
               return app;
             });
+            // 同步更新缓存
+            allAppsCacheRef.current = updatedApps;
             return updatedApps;
           });
         });
@@ -5074,7 +5197,7 @@ export function LauncherWindow({ updateInfo }: LauncherWindowProps) {
           // 更新前端缓存
           await refreshFileHistoryCache();
           // 使用前端缓存搜索
-          const searchResults = searchFileHistoryFrontend(trimmedPath, allFileHistoryCacheRef.current);
+          const searchResults = await searchFileHistoryFrontend(trimmedPath, allFileHistoryCacheRef.current);
           console.log("Search results:", searchResults);
           if (searchResults.length > 0) {
             setFilteredFiles(searchResults);
