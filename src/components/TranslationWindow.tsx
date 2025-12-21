@@ -44,12 +44,10 @@ export function TranslationWindow() {
   const wordbookRefreshRef = useRef<{ current: (() => void) | null }>({ current: null });
 
   // 处理保存单词后的刷新
-  const handleSaveWord = useCallback(async (word: string, translation: string, sourceLang: string, targetLang: string) => {
+  const handleSaveWord = useCallback(async (word: string, translation: string) => {
     await tauriApi.addWordRecord(
       word,
       translation,
-      sourceLang,
-      targetLang,
       null,
       null,
       null,

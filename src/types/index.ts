@@ -159,8 +159,6 @@ export interface WordRecord {
   id: string;
   word: string;
   translation: string;
-  sourceLang: string;
-  targetLang: string;
   context?: string | null;
   phonetic?: string | null;
   exampleSentence?: string | null;

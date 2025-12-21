@@ -10,8 +10,6 @@ pub struct WordRecord {
     pub id: String,
     pub word: String,
     pub translation: String,
-    pub source_lang: String,
-    pub target_lang: String,
     pub context: Option<String>,
     pub phonetic: Option<String>,
     pub example_sentence: Option<String>,
@@ -38,7 +36,7 @@ pub fn get_all_word_records(app_data_dir: &Path) -> Result<Vec<WordRecord>, Stri
 
     let mut stmt = conn
         .prepare(
-            "SELECT id, word, translation, source_lang, target_lang, context, phonetic, 
+            "SELECT id, word, translation, context, phonetic, 
                     example_sentence, tags, ai_explanation, mastery_level, review_count, last_reviewed, 
                     created_at, updated_at, is_favorite, is_mastered 
              FROM word_records ORDER BY mastery_level ASC",
@@ -47,7 +45,7 @@ pub fn get_all_word_records(app_data_dir: &Path) -> Result<Vec<WordRecord>, Stri
 
     let rows = stmt
         .query_map([], |row| {
-            let tags_json: Option<String> = row.get(8)?;
+            let tags_json: Option<String> = row.get(6)?;
             let tags = if let Some(json) = tags_json {
                 serde_json::from_str(&json).unwrap_or_default()
             } else {
@@ -58,20 +56,18 @@ pub fn get_all_word_records(app_data_dir: &Path) -> Result<Vec<WordRecord>, Stri
                 id: row.get(0)?,
                 word: row.get(1)?,
                 translation: row.get(2)?,
-                source_lang: row.get(3)?,
-                target_lang: row.get(4)?,
-                context: row.get(5)?,
-                phonetic: row.get(6)?,
-                example_sentence: row.get(7)?,
+                context: row.get(3)?,
+                phonetic: row.get(4)?,
+                example_sentence: row.get(5)?,
                 tags,
-                ai_explanation: row.get(9)?,
-                mastery_level: row.get(10)?,
-                review_count: row.get(11)?,
-                last_reviewed: row.get::<_, Option<i64>>(12)?.map(|v| v as u64),
-                created_at: row.get::<_, i64>(13)? as u64,
-                updated_at: row.get::<_, i64>(14)? as u64,
-                is_favorite: row.get::<_, i32>(15)? != 0,
-                is_mastered: row.get::<_, i32>(16)? != 0,
+                ai_explanation: row.get(7)?,
+                mastery_level: row.get(8)?,
+                review_count: row.get(9)?,
+                last_reviewed: row.get::<_, Option<i64>>(10)?.map(|v| v as u64),
+                created_at: row.get::<_, i64>(11)? as u64,
+                updated_at: row.get::<_, i64>(12)? as u64,
+                is_favorite: row.get::<_, i32>(13)? != 0,
+                is_mastered: row.get::<_, i32>(14)? != 0,
             })
         })
         .map_err(|e| format!("Failed to iterate word_records: {}", e))?;
@@ -86,8 +82,6 @@ pub fn get_all_word_records(app_data_dir: &Path) -> Result<Vec<WordRecord>, Stri
 pub fn add_word_record(
     word: String,
     translation: String,
-    source_lang: String,
-    target_lang: String,
     context: Option<String>,
     phonetic: Option<String>,
     example_sentence: Option<String>,
@@ -104,8 +98,6 @@ pub fn add_word_record(
         id: id.clone(),
         word: word.clone(),
         translation: translation.clone(),
-        source_lang: source_lang.clone(),
-        target_lang: target_lang.clone(),
         context: context.clone(),
         phonetic: phonetic.clone(),
         example_sentence: example_sentence.clone(),
@@ -122,16 +114,14 @@ pub fn add_word_record(
 
     let mut conn = db::get_connection(app_data_dir)?;
     conn.execute(
-        "INSERT INTO word_records (id, word, translation, source_lang, target_lang, context, 
+        "INSERT INTO word_records (id, word, translation, context, 
                                    phonetic, example_sentence, tags, ai_explanation, mastery_level, review_count, 
                                    last_reviewed, created_at, updated_at, is_favorite, is_mastered)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
         params![
             item.id,
             item.word,
             item.translation,
-            item.source_lang,
-            item.target_lang,
             item.context,
             item.phonetic,
             item.example_sentence,
@@ -169,13 +159,13 @@ pub fn update_word_record(
 
     let existing: Option<WordRecord> = conn
         .query_row(
-            "SELECT id, word, translation, source_lang, target_lang, context, phonetic, 
+            "SELECT id, word, translation, context, phonetic, 
                     example_sentence, tags, ai_explanation, mastery_level, review_count, last_reviewed, 
                     created_at, updated_at, is_favorite, is_mastered 
              FROM word_records WHERE id = ?1",
             params![id],
             |row| {
-                let tags_json: Option<String> = row.get(8)?;
+                let tags_json: Option<String> = row.get(6)?;
                 let tags = if let Some(json) = tags_json {
                     serde_json::from_str(&json).unwrap_or_default()
                 } else {
@@ -186,20 +176,18 @@ pub fn update_word_record(
                     id: row.get(0)?,
                     word: row.get(1)?,
                     translation: row.get(2)?,
-                    source_lang: row.get(3)?,
-                    target_lang: row.get(4)?,
-                    context: row.get(5)?,
-                    phonetic: row.get(6)?,
-                    example_sentence: row.get(7)?,
+                    context: row.get(3)?,
+                    phonetic: row.get(4)?,
+                    example_sentence: row.get(5)?,
                     tags,
-                    ai_explanation: row.get(9)?,
-                    mastery_level: row.get(10)?,
-                    review_count: row.get(11)?,
-                    last_reviewed: row.get::<_, Option<i64>>(12)?.map(|v| v as u64),
-                    created_at: row.get::<_, i64>(13)? as u64,
-                    updated_at: row.get::<_, i64>(14)? as u64,
-                    is_favorite: row.get::<_, i32>(15)? != 0,
-                    is_mastered: row.get::<_, i32>(16)? != 0,
+                    ai_explanation: row.get(7)?,
+                    mastery_level: row.get(8)?,
+                    review_count: row.get(9)?,
+                    last_reviewed: row.get::<_, Option<i64>>(10)?.map(|v| v as u64),
+                    created_at: row.get::<_, i64>(11)? as u64,
+                    updated_at: row.get::<_, i64>(12)? as u64,
+                    is_favorite: row.get::<_, i32>(13)? != 0,
+                    is_mastered: row.get::<_, i32>(14)? != 0,
                 })
             },
         )
@@ -285,7 +273,7 @@ pub fn search_word_records(query: &str, app_data_dir: &Path) -> Result<Vec<WordR
     let like = format!("%{}%", query.to_lowercase());
     let mut stmt = conn
         .prepare(
-            "SELECT id, word, translation, source_lang, target_lang, context, phonetic, 
+            "SELECT id, word, translation, context, phonetic, 
                     example_sentence, tags, ai_explanation, mastery_level, review_count, last_reviewed, 
                     created_at, updated_at, is_favorite, is_mastered 
              FROM word_records
@@ -296,7 +284,7 @@ pub fn search_word_records(query: &str, app_data_dir: &Path) -> Result<Vec<WordR
 
     let rows = stmt
         .query_map(params![like], |row| {
-            let tags_json: Option<String> = row.get(8)?;
+            let tags_json: Option<String> = row.get(6)?;
             let tags = if let Some(json) = tags_json {
                 serde_json::from_str(&json).unwrap_or_default()
             } else {
@@ -307,20 +295,18 @@ pub fn search_word_records(query: &str, app_data_dir: &Path) -> Result<Vec<WordR
                 id: row.get(0)?,
                 word: row.get(1)?,
                 translation: row.get(2)?,
-                source_lang: row.get(3)?,
-                target_lang: row.get(4)?,
-                context: row.get(5)?,
-                phonetic: row.get(6)?,
-                example_sentence: row.get(7)?,
+                context: row.get(3)?,
+                phonetic: row.get(4)?,
+                example_sentence: row.get(5)?,
                 tags,
-                ai_explanation: row.get(9)?,
-                mastery_level: row.get(10)?,
-                review_count: row.get(11)?,
-                last_reviewed: row.get::<_, Option<i64>>(12)?.map(|v| v as u64),
-                created_at: row.get::<_, i64>(13)? as u64,
-                updated_at: row.get::<_, i64>(14)? as u64,
-                is_favorite: row.get::<_, i32>(15)? != 0,
-                is_mastered: row.get::<_, i32>(16)? != 0,
+                ai_explanation: row.get(7)?,
+                mastery_level: row.get(8)?,
+                review_count: row.get(9)?,
+                last_reviewed: row.get::<_, Option<i64>>(10)?.map(|v| v as u64),
+                created_at: row.get::<_, i64>(11)? as u64,
+                updated_at: row.get::<_, i64>(12)? as u64,
+                is_favorite: row.get::<_, i32>(13)? != 0,
+                is_mastered: row.get::<_, i32>(14)? != 0,
             })
         })
         .map_err(|e| format!("Failed to iterate word_record search: {}", e))?;

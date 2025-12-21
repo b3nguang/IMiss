@@ -103,7 +103,7 @@ interface TranslationPanelProps {
   targetLang: string;
   onSourceLangChange: (lang: string) => void;
   onTargetLangChange: (lang: string) => void;
-  onSaveWord?: (word: string, translation: string, sourceLang: string, targetLang: string) => Promise<void>;
+  onSaveWord?: (word: string, translation: string) => Promise<void>;
 }
 
 export function TranslationPanel({
@@ -269,17 +269,13 @@ export function TranslationPanel({
       if (onSaveWord) {
         await onSaveWord(
           inputText.trim(),
-          saveTranslation.trim(),
-          sourceLang === "auto" ? "en" : sourceLang,
-          targetLang
+          saveTranslation.trim()
         );
       } else {
         // 默认行为：直接调用 API
         await tauriApi.addWordRecord(
           inputText.trim(),
           saveTranslation.trim(),
-          sourceLang === "auto" ? "en" : sourceLang,
-          targetLang,
           null,
           null,
           null,

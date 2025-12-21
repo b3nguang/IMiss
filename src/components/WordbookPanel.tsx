@@ -731,8 +731,6 @@ export function WordbookPanel({
       const newRecord = await tauriApi.addWordRecord(
         word,
         translation,
-        "en", // 默认源语言为英语
-        "zh", // 默认目标语言为中文
         null, // 上下文字段已删除
         null, // 音标字段已删除
         exampleSentence,

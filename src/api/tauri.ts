@@ -655,8 +655,6 @@ export const tauriApi = {
   async addWordRecord(
     word: string,
     translation: string,
-    sourceLang: string,
-    targetLang: string,
     context?: string | null,
     phonetic?: string | null,
     exampleSentence?: string | null,
@@ -665,8 +663,6 @@ export const tauriApi = {
     return invoke("add_word_record", {
       word,
       translation,
-      sourceLang,
-      targetLang,
       context,
       phonetic,
       exampleSentence,

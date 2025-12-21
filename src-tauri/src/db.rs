@@ -167,8 +167,6 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
             id TEXT PRIMARY KEY,
             word TEXT NOT NULL,
             translation TEXT NOT NULL,
-            source_lang TEXT NOT NULL,
-            target_lang TEXT NOT NULL,
             context TEXT,
             phonetic TEXT,
             example_sentence TEXT,
@@ -193,23 +191,79 @@ fn run_migrations(conn: &Connection) -> Result<(), String> {
         -- Note: This will fail silently if the column already exists, which is fine
         -- We'll handle this gracefully by catching the error
         -- For now, we'll add it in a separate migration step
+        
+        -- Migration: Remove source_lang and target_lang columns if they exist
+        -- SQLite doesn't support DROP COLUMN, so we need to recreate the table
+        -- Check if old columns exist by trying to select them
     "#,
     )
     .map_err(|e| format!("Failed to run database migrations: {}", e))?;
 
     // Migration: Add ai_explanation column if it doesn't exist
     // Check if column exists by trying to select it
-    let column_exists = conn
+    let ai_explanation_exists = conn
         .prepare("SELECT ai_explanation FROM word_records LIMIT 1")
         .is_ok();
     
-    if !column_exists {
+    if !ai_explanation_exists {
         // Column doesn't exist, add it
         conn.execute(
             "ALTER TABLE word_records ADD COLUMN ai_explanation TEXT",
             [],
         )
         .map_err(|e| format!("Failed to add ai_explanation column: {}", e))?;
+    }
+
+    // Migration: Remove source_lang and target_lang columns if they exist
+    // SQLite doesn't support DROP COLUMN, so we need to recreate the table
+    let old_columns_exist = conn
+        .prepare("SELECT source_lang, target_lang FROM word_records LIMIT 1")
+        .is_ok();
+    
+    if old_columns_exist {
+        // Old columns exist, need to migrate
+        conn.execute_batch(
+            r#"
+            -- Create new table without source_lang and target_lang
+            CREATE TABLE IF NOT EXISTS word_records_new (
+                id TEXT PRIMARY KEY,
+                word TEXT NOT NULL,
+                translation TEXT NOT NULL,
+                context TEXT,
+                phonetic TEXT,
+                example_sentence TEXT,
+                tags TEXT,
+                ai_explanation TEXT,
+                mastery_level INTEGER DEFAULT 0,
+                review_count INTEGER DEFAULT 0,
+                last_reviewed INTEGER,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                is_favorite INTEGER DEFAULT 0,
+                is_mastered INTEGER DEFAULT 0
+            );
+            
+            -- Copy data from old table to new table (excluding source_lang and target_lang)
+            INSERT INTO word_records_new 
+            SELECT id, word, translation, context, phonetic, example_sentence, tags, 
+                   ai_explanation, mastery_level, review_count, last_reviewed, 
+                   created_at, updated_at, is_favorite, is_mastered
+            FROM word_records;
+            
+            -- Drop old table
+            DROP TABLE word_records;
+            
+            -- Rename new table
+            ALTER TABLE word_records_new RENAME TO word_records;
+            
+            -- Recreate indexes
+            CREATE INDEX IF NOT EXISTS idx_word_records_word ON word_records(word);
+            CREATE INDEX IF NOT EXISTS idx_word_records_created_at ON word_records(created_at);
+            CREATE INDEX IF NOT EXISTS idx_word_records_mastery_level ON word_records(mastery_level);
+            CREATE INDEX IF NOT EXISTS idx_word_records_is_favorite ON word_records(is_favorite);
+            "#,
+        )
+        .map_err(|e| format!("Failed to migrate word_records table: {}", e))?;
     }
 
     Ok(())

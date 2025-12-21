@@ -2031,8 +2031,6 @@ pub fn get_all_word_records(app: tauri::AppHandle) -> Result<Vec<word_records::W
 pub fn add_word_record(
     word: String,
     translation: String,
-    source_lang: String,
-    target_lang: String,
     context: Option<String>,
     phonetic: Option<String>,
     example_sentence: Option<String>,
@@ -2043,8 +2041,6 @@ pub fn add_word_record(
     word_records::add_word_record(
         word,
         translation,
-        source_lang,
-        target_lang,
         context,
         phonetic,
         example_sentence,
