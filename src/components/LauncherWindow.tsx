@@ -1817,8 +1817,12 @@ export function LauncherWindow({ updateInfo }: LauncherWindowProps) {
         const keyLower = key.toLowerCase();
         if ((keyLower.startsWith('http://') || keyLower.startsWith('https://')) && 
             !detectedUrlsSet.has(keyLower)) {
-          // URL 包含查询内容，则添加到历史 URL 列表
-          if (keyLower.includes(queryLower)) {
+          // URL 包含查询内容，或者备注包含查询内容，则添加到历史 URL 列表
+          const urlMatches = keyLower.includes(queryLower);
+          const remark = urlRemarks[key];
+          const remarkMatches = remark && remark.toLowerCase().includes(queryLower);
+          
+          if (urlMatches || remarkMatches) {
             historyUrls.push({ url: key, timestamp });
           }
         }
@@ -2716,7 +2720,7 @@ export function LauncherWindow({ updateInfo }: LauncherWindowProps) {
     });
     
     return allResultsToSort;
-  }, [filteredApps, filteredFiles, filteredMemos, filteredPlugins, everythingResults, detectedUrls, detectedEmails, detectedJson, openHistory, query, aiAnswer]);
+  }, [filteredApps, filteredFiles, filteredMemos, filteredPlugins, everythingResults, detectedUrls, detectedEmails, detectedJson, openHistory, urlRemarks, query, aiAnswer]);
 
   // 防抖延迟更新 combinedResults，避免多个搜索结果异步返回时频繁重新排序
   const [debouncedCombinedResults, setDebouncedCombinedResults] = useState<SearchResult[]>([]);
