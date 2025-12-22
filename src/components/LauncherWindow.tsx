@@ -6,7 +6,7 @@ import { tauriApi } from "../api/tauri";
 import type { AppInfo, FileHistoryItem, EverythingResult, MemoItem, PluginContext, UpdateCheckResult, SearchEngineConfig } from "../types";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalSize } from "@tauri-apps/api/window";
-import { plugins, searchPlugins, executePlugin } from "../plugins";
+import { plugins, executePlugin } from "../plugins";
 import { AppCenterContent } from "./AppCenterContent";
 import { MemoModal } from "./MemoModal";
 import { ContextMenu } from "./ContextMenu";
@@ -24,7 +24,6 @@ import { getThemeConfig, getLayoutConfig, type ResultStyle } from "../utils/them
 import { handleEscapeKey, closePluginModalAndHide, closeMemoModalAndHide } from "../utils/launcherHandlers";
 import { clearAllResults, loadResultsIncrementally } from "../utils/resultUtils";
 import { getMainContainer as getMainContainerUtil } from "../utils/windowUtils";
-import { searchMemos, searchSystemFolders, searchApplications, searchFileHistory } from "../utils/searchUtils";
 import type { SearchResult } from "../utils/resultUtils";
 import { askOllama } from "../utils/ollamaUtils";
 import { computeCombinedResults } from "../utils/combineResultsUtils";
@@ -40,6 +39,7 @@ import { useLauncherInitialization } from "../hooks/useLauncherInitialization";
 import { useWindowSizeAdjustment } from "../hooks/useWindowSizeAdjustment";
 import { useSystemFoldersInitialization } from "../hooks/useSystemFoldersInitialization";
 import { useAppIconsListener } from "../hooks/useAppIconsListener";
+import { useSearchWrappers } from "../hooks/useSearchWrappers";
 import {
   processPastedPath as processPastedPathUtil,
   handlePaste as handlePasteUtil,
@@ -1047,57 +1047,6 @@ export function LauncherWindow({ updateInfo }: LauncherWindowProps) {
                              filteredPlugins.length > 0 || everythingResults.length > 0;
   }, [filteredApps, filteredFiles, filteredMemos, filteredPlugins, everythingResults]);
 
-  const searchMemosWrapper = useCallback(async (q: string) => {
-    await searchMemos(q, {
-        memos,
-      currentQuery: query,
-      updateSearchResults,
-      setFilteredMemos,
-    });
-  }, [memos, query, updateSearchResults]);
-
-  const handleSearchPlugins = useCallback((q: string) => {
-    // Don't search if query is empty
-    if (!q || q.trim() === "") {
-      updateSearchResults(setFilteredPlugins, []);
-      return;
-    }
-    
-    const filtered = searchPlugins(q);
-    
-    // Only update if query hasn't changed
-    if (query.trim() === q.trim()) {
-      updateSearchResults(setFilteredPlugins, filtered.map(p => ({ id: p.id, name: p.name, description: p.description })));
-    } else {
-      updateSearchResults(setFilteredPlugins, []);
-    }
-  }, [query, updateSearchResults]);
-
-
-  // 处理绝对路径直达：存在则生成一个临时文件结果，减少 Everything/系统目录压力
-  const handleDirectPathLookup = useCallback(async (rawPath: string) => {
-    try {
-      const result = await tauriApi.checkPathExists(rawPath);
-      // 只在查询未变化时更新，使用 startTransition 避免阻塞输入
-      if (query.trim() === rawPath.trim() && result) {
-        startTransition(() => {
-          setDirectPathResult(result);
-        });
-      } else if (query.trim() === rawPath.trim()) {
-        startTransition(() => {
-          setDirectPathResult(null);
-        });
-      }
-    } catch (error) {
-      console.error("Direct path lookup failed:", error);
-      if (query.trim() === rawPath.trim()) {
-        startTransition(() => {
-          setDirectPathResult(null);
-        });
-      }
-    }
-  }, [query]);
-
 
   // Combine apps, files, Everything results, and URLs into results when they change
   // 使用 useState + useEffect 替代 useMemo，在 useEffect 中使用 startTransition 异步计算
@@ -1684,31 +1633,36 @@ export function LauncherWindow({ updateInfo }: LauncherWindowProps) {
     systemFoldersListLoadedRef,
   });
 
-  // 搜索系统文件夹（前端搜索，避免每次调用后端）- 异步分批处理，避免阻塞UI
-  const searchSystemFoldersWrapper = useCallback(async (searchQuery: string) => {
-    await searchSystemFolders(searchQuery, {
-      currentQuery: query,
-      updateSearchResults,
-      setSystemFolders,
-      systemFoldersListRef,
-      systemFoldersListLoadedRef,
-    });
-  }, [query, updateSearchResults]);
-
-
-  // 主搜索函数：优先使用前端搜索，如果缓存未加载则回退到后端搜索
-  const searchApplicationsWrapper = useCallback(async (searchQuery: string) => {
-    await searchApplications(searchQuery, {
-      currentQuery: query,
-      updateSearchResults,
-      setFilteredApps,
-      setApps,
-      allAppsCacheRef,
-      allAppsCacheLoadedRef,
-      apps,
-      filterWindowsApps,
-    });
-  }, [query, updateSearchResults, apps, filterWindowsApps]);
+  // 使用自定义 hook 管理搜索相关的 wrapper 函数
+  const {
+    searchMemosWrapper,
+    searchSystemFoldersWrapper,
+    searchApplicationsWrapper,
+    searchFileHistoryWrapper,
+    handleSearchPlugins,
+    handleDirectPathLookup,
+    refreshFileHistoryCache,
+  } = useSearchWrappers({
+    query,
+    memos,
+    apps,
+    allFileHistoryCacheRef,
+    allFileHistoryCacheLoadedRef,
+    allAppsCacheRef,
+    allAppsCacheLoadedRef,
+    systemFoldersListRef,
+    systemFoldersListLoadedRef,
+    extractedFileIconsRef,
+    updateSearchResults,
+    filterWindowsApps,
+    setFilteredMemos,
+    setFilteredFiles,
+    setFilteredApps,
+    setFilteredPlugins,
+    setSystemFolders,
+    setApps,
+    setDirectPathResult,
+  });
 
   // 使用自定义 hook 监听图标更新事件
   useAppIconsListener({
@@ -1717,29 +1671,6 @@ export function LauncherWindow({ updateInfo }: LauncherWindowProps) {
     allAppsCacheRef,
   });
 
-  // 刷新文件历史缓存（当文件历史更新时调用）
-  const refreshFileHistoryCache = useCallback(async () => {
-    try {
-      const allFileHistory = await tauriApi.getAllFileHistory();
-      allFileHistoryCacheRef.current = allFileHistory;
-      allFileHistoryCacheLoadedRef.current = true;
-    } catch (error) {
-      console.error("Failed to refresh file history cache:", error);
-    }
-  }, []);
-
-
-  const searchFileHistoryWrapper = useCallback(async (searchQuery: string) => {
-    await searchFileHistory(searchQuery, {
-      currentQuery: query,
-      updateSearchResults,
-      setFilteredFiles,
-      allFileHistoryCacheRef,
-      allFileHistoryCacheLoadedRef,
-      extractedFileIconsRef,
-      apps,
-    });
-  }, [query, updateSearchResults, apps]);
 
 
   // 会话模式相关的 ref（完全复刻 EverythingSearchWindow）
