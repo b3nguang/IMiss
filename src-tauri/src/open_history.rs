@@ -317,9 +317,11 @@ pub fn delete_open_history(key: String, app_data_dir: &Path) -> Result<(), Strin
     let mut state = lock_history()?;
     load_history_into(&mut state, app_data_dir)?;
 
-    state
-        .remove(&key)
-        .ok_or_else(|| format!("Open history item not found: {}", key))?;
+    // If item doesn't exist, consider deletion successful (idempotent operation)
+    if state.remove(&key).is_none() {
+        // Item doesn't exist, but deletion is idempotent, so return success
+        return Ok(());
+    }
 
     // Clone the state for saving (we need to release the lock first)
     let state_clone = state.clone();
@@ -545,12 +547,87 @@ pub fn update_item_remark(
     let mut state = lock_history()?;
     load_history_into(&mut state, app_data_dir)?;
 
+    // Check if item exists
+    let item_exists = state.contains_key(&key);
+    let was_new = !item_exists;
+
+    // If item doesn't exist, create it
+    if !item_exists {
+        let trimmed = key.trim();
+        
+        // Check if this is a URL (http:// or https://)
+        let is_url = trimmed.starts_with("http://") || trimmed.starts_with("https://");
+        
+        let (normalized_key, is_folder, default_name) = if is_url {
+            // Handle URL - extract domain name as default name
+            let url = trimmed.to_string();
+            let name = if let Some(domain_start) = url.find("://") {
+                let after_protocol = &url[domain_start + 3..];
+                if let Some(slash_pos) = after_protocol.find('/') {
+                    after_protocol[..slash_pos].to_string()
+                } else {
+                    after_protocol.to_string()
+                }
+            } else {
+                url.clone()
+            };
+            (url, false, Some(name))
+        } else {
+            // Handle file system path - only create if path exists
+            let trimmed = trimmed.trim_end_matches(|c| c == '\\' || c == '/');
+            let path_buf = PathBuf::from(trimmed);
+            let normalized_path = if path_buf.is_absolute() {
+                path_buf
+            } else {
+                std::env::current_dir()
+                    .map_err(|e| format!("Failed to get current directory: {}", e))?
+                    .join(&path_buf)
+            };
+
+            let normalized_path_str = normalized_path.to_string_lossy().to_string();
+
+            // Check if path exists
+            if !Path::new(&normalized_path_str).exists() {
+                return Err(format!("Path not found: {}", normalized_path_str));
+            }
+
+            let is_folder = normalized_path.is_dir();
+            let name = normalized_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| normalized_path.to_string_lossy().to_string());
+            
+            (normalized_path_str, is_folder, Some(name))
+        };
+
+        // Create new item with the remark as name (or use default name if remark is empty)
+        let name = new_remark.clone().or(default_name);
+        state.insert(
+            normalized_key.clone(),
+            OpenHistoryItem {
+                key: normalized_key.clone(),
+                last_opened: timestamp,
+                name,
+                use_count: 1,
+                is_folder: Some(is_folder),
+            },
+        );
+    }
+
+    // Now update the item (it must exist now, either existing or just created)
     let item = state
         .get_mut(&key)
-        .ok_or_else(|| format!("Open history item not found: {}", key))?;
+        .ok_or_else(|| format!("Failed to create or find item: {}", key))?;
 
-    // Store remark in name field
-    item.name = new_remark;
+    // For existing items, always update the name field (even if None to clear the remark)
+    // For new items: if new_remark was Some, it's already set; if None, we used default_name
+    // So we only need to update name for existing items, or if new_remark is Some for new items
+    if !was_new || new_remark.is_some() {
+        // For existing items: always update (even if None to clear)
+        // For new items: only update if remark was provided (otherwise keep default_name)
+        item.name = new_remark.clone();
+    }
     item.last_opened = timestamp;
 
     let item_clone = item.clone();
