@@ -1073,9 +1073,27 @@ export function computeCombinedResults(options: CombineResultsOptions): SearchRe
   }
 
   // 合并所有结果，然后统一排序（确保最近使用时间优先）
+  // 先对 URL 进行去重，避免同一个 URL 同时出现在 otherResults 和 urlResults 中
+  // 收集 otherResults 中已有的 URL（基于 path 或 url 字段）
+  const urlPathsInOtherResults = new Set<string>();
+  for (const result of otherResults) {
+    if (result.type === "url" && result.url) {
+      urlPathsInOtherResults.add(result.url.toLowerCase());
+    }
+  }
+  
+  // 过滤掉 urlResults 中已经在 otherResults 中存在的 URL
+  // 优先保留 otherResults 中的 URL（因为包含 file 字段，有更完整的信息）
+  const deduplicatedUrlResults = urlResults.filter((result) => {
+    if (result.type === "url" && result.url) {
+      return !urlPathsInOtherResults.has(result.url.toLowerCase());
+    }
+    return true;
+  });
+
   const allResultsToSort = [
     ...otherResults,
-    ...urlResults,
+    ...deduplicatedUrlResults,  // 使用去重后的 URL 结果
     ...emailResults,
     ...jsonFormatterResult,
   ];
