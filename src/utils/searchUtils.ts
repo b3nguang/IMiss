@@ -30,10 +30,10 @@ export function detectSearchIntent(
   const sortedEngines = [...engines].sort((a, b) => b.prefix.length - a.prefix.length);
 
   for (const engine of sortedEngines) {
-    const prefix = engine.prefix.trim();
-    if (!prefix) continue;
+    const prefix = engine.prefix;
+    if (!prefix || !prefix.trim()) continue;
 
-    // 检查查询是否以该前缀开头
+    // 检查查询是否以该前缀开头（前缀本身应包含空格，如 "g "）
     if (query.startsWith(prefix)) {
       const keyword = query.slice(prefix.length).trim();
       // 如果提取的关键词不为空，返回匹配结果
