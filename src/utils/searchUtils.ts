@@ -31,15 +31,18 @@ export function detectSearchIntent(
 
   for (const engine of sortedEngines) {
     const prefix = engine.prefix;
-    if (!prefix || !prefix.trim()) continue;
+    // 只检查前缀是否为空，不进行 trim（因为前缀可能包含空格）
+    if (!prefix) continue;
 
-    // 检查查询是否以该前缀开头（前缀本身应包含空格，如 "g "）
-    if (query.startsWith(prefix)) {
-      const keyword = query.slice(prefix.length).trim();
-      // 如果提取的关键词不为空，返回匹配结果
-      if (keyword.length > 0) {
-        return { engine, keyword };
-      }
+    // 前缀+空格才视为搜索
+    // 如果前缀本身以空格结尾（如 "s "），直接匹配前缀
+    // 如果前缀不以空格结尾（如 "s"），要求查询必须以"前缀+空格"开头
+    const prefixToMatch = prefix.endsWith(' ') ? prefix : prefix + ' ';
+    
+    if (query.startsWith(prefixToMatch)) {
+      const keyword = query.slice(prefixToMatch.length).trim();
+      // 只要匹配到前缀，就返回结果（即使关键词为空，也显示搜索意图）
+      return { engine, keyword };
     }
   }
 
