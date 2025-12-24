@@ -4012,18 +4012,14 @@ public class IconExtractor {
     }
 
     pub fn launch_app(app: &AppInfo) -> Result<(), String> {
-        use std::ffi::OsStr;
-        use std::os::windows::ffi::OsStrExt;
-        use windows_sys::Win32::UI::Shell::ShellExecuteW;
+        use std::process::Command;
+        use std::os::windows::process::CommandExt;
 
         let path_str = app.path.trim();
         let path_lower = path_str.to_lowercase();
         
         // Special handling for ms-settings: URI (Windows Settings app)
         if path_lower.starts_with("ms-settings:") {
-            use std::process::Command;
-            use std::os::windows::process::CommandExt;
-            
             Command::new("cmd")
                 .args(&["/c", "start", "", path_str])
                 .creation_flags(0x08000000) // CREATE_NO_WINDOW - 不显示控制台窗口
@@ -4033,45 +4029,31 @@ public class IconExtractor {
             return Ok(());
         }
         
-        // Special handling for shell:AppsFolder URIs - use ShellExecuteExW or fallback to ms-settings:
+        // Special handling for shell:AppsFolder URIs
         if path_lower.starts_with("shell:appsfolder") {
-            // Try ShellExecuteW first
-            let path_wide: Vec<u16> = OsStr::new(path_str)
-                .encode_wide()
-                .chain(Some(0))
-                .collect();
-
-            let result = unsafe {
-                ShellExecuteW(
-                    0, // hwnd - no parent window
-                    std::ptr::null(), // lpOperation - NULL means "open"
-                    path_wide.as_ptr(), // lpFile
-                    std::ptr::null(), // lpParameters
-                    std::ptr::null(), // lpDirectory
-                    1, // nShowCmd - SW_SHOWNORMAL (1)
-                )
-            };
+            // Use cmd /c start to ensure proper environment variables are inherited
+            let result = Command::new("cmd")
+                .args(&["/c", "start", "", path_str])
+                .creation_flags(0x08000000)
+                .spawn();
             
-            // If ShellExecuteW fails, try fallback to ms-settings: for Windows Settings
-            if result as i32 <= 32 {
-                if path_str.contains("Microsoft.Windows.Settings") {
-                    
-                    use std::process::Command;
-                    use std::os::windows::process::CommandExt;
-                    
-                    Command::new("cmd")
-                        .args(&["/c", "start", "", "ms-settings:"])
-                        .creation_flags(0x08000000) // CREATE_NO_WINDOW - 不显示控制台窗口
-                        .spawn()
-                        .map_err(|e| format!("Failed to open Windows Settings (fallback): {}", e))?;
-                    
-                    return Ok(());
-                } else {
-                    return Err(format!("Failed to launch application: {} (error code: {})", app.path, result as i32));
+            match result {
+                Ok(_) => return Ok(()),
+                Err(_) => {
+                    // If cmd /c start fails, try fallback to ms-settings: for Windows Settings
+                    if path_str.contains("Microsoft.Windows.Settings") {
+                        Command::new("cmd")
+                            .args(&["/c", "start", "", "ms-settings:"])
+                            .creation_flags(0x08000000)
+                            .spawn()
+                            .map_err(|e| format!("Failed to open Windows Settings (fallback): {}", e))?;
+                        
+                        return Ok(());
+                    } else {
+                        return Err(format!("Failed to launch application: {}", app.path));
+                    }
                 }
             }
-            
-            return Ok(());
         }
         
         let path = Path::new(path_str);
@@ -4104,89 +4086,49 @@ public class IconExtractor {
                 Err(e) => {
                     parse_error = Some(e.clone());
                     eprintln!("[WARN] Failed to parse shortcut {}: {}. Attempting direct launch.", app.path, e);
-                    // 继续尝试直接启动，让 ShellExecuteW 处理
+                    // 继续尝试直接启动
                 }
             }
         } else if !path.exists() {
             return Err(format!("应用程序未找到: {}", app.path));
         }
 
-        // Convert path to wide string (UTF-16) for Windows API
-        let path_wide: Vec<u16> = OsStr::new(path_str)
-            .encode_wide()
-            .chain(Some(0))
-            .collect();
-
-        // Use ShellExecuteW to open application without showing command prompt
-        let result = unsafe {
-            ShellExecuteW(
-                0, // hwnd - no parent window
-                std::ptr::null(), // lpOperation - NULL means "open"
-                path_wide.as_ptr(), // lpFile
-                std::ptr::null(), // lpParameters
-                std::ptr::null(), // lpDirectory
-                1, // nShowCmd - SW_SHOWNORMAL (1)
-            )
-        };
-        
-        // ShellExecuteW returns a value > 32 on success
-        if result as i32 <= 32 {
-            let error_code = result as i32;
-            
-            // 获取详细的错误信息
-            let error_name = match error_code {
-                0 => "内存不足",
-                2 => "文件未找到",
-                3 => "路径未找到",
-                5 => "访问被拒绝",
-                8 => "内存不足",
-                11 => "格式错误",
-                26 => "共享冲突",
-                27 => "关联不完整",
-                28 => "DDE 失败",
-                29 => "DDE 超时",
-                30 => "DDE 忙碌",
-                31 => "无关联",
-                32 => "DLL 未找到",
-                _ => "未知错误",
-            };
-            
-            // 对于快捷方式，尝试解析并显示目标路径
-            let additional_info = if is_lnk {
-                // 如果之前解析失败，显示解析错误；否则尝试重新解析
-                if let Some(parse_err) = parse_error {
-                    format!(" (无法解析快捷方式: {})", parse_err)
+        // Use cmd /c start to launch application with proper environment variables
+        // This ensures that launched applications (like Cursor) inherit the full user environment
+        // variables (including PATH with cargo), matching the behavior of launching from Start Menu
+        match Command::new("cmd")
+            .args(&["/c", "start", "", path_str])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW - 不显示控制台窗口
+            .spawn()
+        {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                // 构建详细的错误信息
+                let error_msg = if is_lnk {
+                    let additional_info = if let Some(parse_err) = parse_error {
+                        format!(" (无法解析快捷方式: {})", parse_err)
+                    } else {
+                        match parse_lnk_file(path) {
+                            Ok(target_info) => {
+                                format!(" (目标路径: {})", target_info.path)
+                            }
+                            Err(parse_e) => {
+                                format!(" (无法解析快捷方式: {})", parse_e)
+                            }
+                        }
+                    };
+                    
+                    format!(
+                        "启动应用程序失败: {} - {}\n\n这通常意味着快捷方式指向的目标文件不存在或已移动。{}\n\n建议：请检查快捷方式属性，确认目标路径是否正确，或重新创建该快捷方式。",
+                        app.path, e, additional_info
+                    )
                 } else {
-                    match parse_lnk_file(path) {
-                        Ok(target_info) => {
-                            format!(" (目标路径: {})", target_info.path)
-                        }
-                        Err(e) => {
-                            format!(" (无法解析快捷方式: {})", e)
-                        }
-                    }
-                }
-            } else {
-                String::new()
-            };
-            
-            // 对于错误代码 5（访问被拒绝），如果是快捷方式，提供更具体的提示
-            let error_msg = if error_code == 5 && is_lnk {
-                format!(
-                    "启动应用程序失败: {} - {} (错误代码: {})\n\n这通常意味着快捷方式指向的目标文件不存在或已移动。{}\n\n建议：请检查快捷方式属性，确认目标路径是否正确，或重新创建该快捷方式。",
-                    app.path, error_name, error_code, additional_info
-                )
-            } else {
-                format!(
-                    "启动应用程序失败: {} - {} (错误代码: {}){}",
-                    app.path, error_name, error_code, additional_info
-                )
-            };
-            
-            return Err(error_msg);
+                    format!("启动应用程序失败: {} - {}", app.path, e)
+                };
+                
+                Err(error_msg)
+            }
         }
-
-        Ok(())
     }
 }
 
