@@ -202,17 +202,32 @@ export function useSearch(options: UseSearchOptions): void {
       // Extract URLs from query（移到防抖内部，避免每次输入都执行）
       // 使用 startTransition 包装，避免阻塞后续的输入
       startTransition(() => {
-        const urls = extractUrls(query);
-        setDetectedUrls(urls);
-        
-        // Extract email addresses from query（移到防抖内部）
-        const emails = extractEmails(query);
-        setDetectedEmails(emails);
-        
-        // Check if query is valid JSON（移到防抖内部）
-        if (isValidJson(query)) {
-          setDetectedJson(query.trim());
-        } else {
+        try {
+          const urls = extractUrls(query);
+          setDetectedUrls(urls);
+          
+          // Extract email addresses from query（移到防抖内部）
+          const emails = extractEmails(query);
+          setDetectedEmails(emails);
+          
+          // Check if query is valid JSON（移到防抖内部）
+          // 添加 try-catch 保护，避免长JSON解析时出错影响搜索流程
+          try {
+            if (isValidJson(query)) {
+              setDetectedJson(query.trim());
+            } else {
+              setDetectedJson(null);
+            }
+          } catch (error) {
+            // 如果JSON检测失败（例如内存不足），静默处理，不影响搜索
+            console.warn('[JSON检测] 检测失败，跳过JSON识别:', error);
+            setDetectedJson(null);
+          }
+        } catch (error) {
+          // 如果URL/Email提取失败，静默处理，不影响搜索
+          console.warn('[搜索] URL/Email提取失败:', error);
+          setDetectedUrls([]);
+          setDetectedEmails([]);
           setDetectedJson(null);
         }
       });

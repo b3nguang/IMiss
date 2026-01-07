@@ -38,10 +38,18 @@ export function extractEmails(text: string): string[] {
 }
 
 // Check if text is valid JSON
+// 添加长度限制，避免处理过长的JSON导致性能问题或内存溢出
+const MAX_JSON_CHECK_LENGTH = 1000000; // 1MB，足够大的JSON但避免处理超大文件
+
 export function isValidJson(text: string): boolean {
   if (!text || text.trim().length === 0) return false;
   
   const trimmed = text.trim();
+  
+  // 长度检查：如果超过限制，不进行JSON解析（避免性能问题）
+  if (trimmed.length > MAX_JSON_CHECK_LENGTH) {
+    return false;
+  }
   
   // Quick check: JSON should start with { or [
   if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
@@ -49,18 +57,33 @@ export function isValidJson(text: string): boolean {
   }
   
   // Try to parse as JSON
+  // 添加更详细的错误处理，避免解析错误导致的问题
   try {
     JSON.parse(trimmed);
     return true;
-  } catch {
+  } catch (error) {
+    // 静默处理解析错误，避免错误传播
+    // 对于很长的JSON，解析失败是正常的（可能是格式错误或超出限制）
     return false;
   }
 }
 
 // Highlight matching keywords in text
+// 添加长度限制，避免长JSON或超长查询导致正则表达式错误
+const MAX_HIGHLIGHT_QUERY_LENGTH = 5000; // 最大查询长度（字符数）
+const MAX_HIGHLIGHT_WORD_LENGTH = 200; // 单个单词最大长度
+const MAX_HIGHLIGHT_PATTERN_LENGTH = 10000; // 正则表达式模式最大长度
+
 export function highlightText(text: string, query: string): string {
   if (!query || !query.trim() || !text) {
     // Escape HTML to prevent XSS
+    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  const trimmedQuery = query.trim();
+  
+  // 如果查询过长，直接返回转义后的文本，不进行高亮（避免正则表达式错误）
+  if (trimmedQuery.length > MAX_HIGHLIGHT_QUERY_LENGTH) {
     return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
@@ -68,20 +91,54 @@ export function highlightText(text: string, query: string): string {
   const escapedText = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   
   // Split query into words (handle multiple words)
-  const queryWords = query.trim().split(/\s+/).filter(word => word.length > 0);
+  const queryWords = trimmedQuery.split(/\s+/).filter(word => word.length > 0);
+  
+  // 过滤掉过长的单词，避免正则表达式过于复杂
+  const validQueryWords = queryWords
+    .filter(word => word.length <= MAX_HIGHLIGHT_WORD_LENGTH)
+    .slice(0, 50); // 最多处理50个单词，避免正则表达式过长
+  
+  // 如果没有有效的查询词，直接返回转义后的文本
+  if (validQueryWords.length === 0) {
+    return escapedText;
+  }
   
   // Escape special regex characters in query words
-  const escapedQueryWords = queryWords.map(word => 
+  const escapedQueryWords = validQueryWords.map(word => 
     word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   );
   
-  // Create regex pattern that matches any of the query words (case-insensitive)
-  const pattern = new RegExp(`(${escapedQueryWords.join('|')})`, 'gi');
+  // 检查正则表达式模式长度，避免创建过大的正则表达式
+  const patternString = `(${escapedQueryWords.join('|')})`;
+  if (patternString.length > MAX_HIGHLIGHT_PATTERN_LENGTH) {
+    // 如果模式过长，只使用前几个单词
+    const limitedWords = escapedQueryWords.slice(0, Math.floor(MAX_HIGHLIGHT_PATTERN_LENGTH / 100));
+    const limitedPattern = `(${limitedWords.join('|')})`;
+    try {
+      const pattern = new RegExp(limitedPattern, 'gi');
+      return escapedText.replace(pattern, (match) => {
+        return `<span class="highlight-match font-semibold">${match}</span>`;
+      });
+    } catch (error) {
+      // 如果正则表达式创建失败，返回转义后的文本
+      console.warn('[高亮文本] 正则表达式创建失败，跳过高亮:', error);
+      return escapedText;
+    }
+  }
   
-  // Replace matches with highlighted version
-  return escapedText.replace(pattern, (match) => {
-    return `<span class="highlight-match font-semibold">${match}</span>`;
-  });
+  // Create regex pattern that matches any of the query words (case-insensitive)
+  try {
+    const pattern = new RegExp(patternString, 'gi');
+    
+    // Replace matches with highlighted version
+    return escapedText.replace(pattern, (match) => {
+      return `<span class="highlight-match font-semibold">${match}</span>`;
+    });
+  } catch (error) {
+    // 如果正则表达式创建失败（例如模式过长或无效），返回转义后的文本
+    console.warn('[高亮文本] 正则表达式创建失败，跳过高亮:', error);
+    return escapedText;
+  }
 }
 
 // 判断字符串是否包含中文字符
