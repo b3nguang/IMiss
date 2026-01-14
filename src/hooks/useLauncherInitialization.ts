@@ -308,11 +308,10 @@ export function useLauncherInitialization(
         // 预加载失败不影响用户体验，静默处理
       }
     };
-    // 延迟一小段时间，避免阻塞初始渲染
-    const timer = setTimeout(preloadApplications, 100);
+    // 立即加载，移除延迟以提升第一次查询速度
+    preloadApplications();
     return () => {
       isMounted = false;
-      clearTimeout(timer);
     };
   }, [setApps, filterWindowsApps, allAppsCacheRef, allAppsCacheLoadedRef]);
 
