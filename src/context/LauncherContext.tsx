@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useReducer, ReactNode, Dispatch } from 'react';
-import { AppInfo, FileHistoryItem, MemoItem, SearchResult } from '../types';
+import { createContext, useContext, useReducer, ReactNode, Dispatch } from 'react';
+import { AppInfo, FileHistoryItem, MemoItem } from '../types';
+import type { SearchResult } from '../utils/resultUtils';
 
 // 定义状态结构
 interface LauncherState {
