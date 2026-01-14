@@ -489,15 +489,14 @@ export function loadResultsIncrementally(options: LoadResultsIncrementallyOption
       if (queryRef.current.trim() !== "" && 
           currentLoadResultsRef.current === allResults) {
         const currentResults = allResults.slice(0, currentCount);
-        // 重要：横向列表应该始终使用完整排序后的结果，而不是只基于当前加载的部分结果
-        // 这样可以确保横向列表的排序是基于所有结果的，保持一致性
+        // 重要：横向列表已经在初始加载时设置过了（基于完整排序后的结果）
+        // 增量加载时只需要更新纵向列表，不需要重复设置横向列表
         const { vertical: currentVertical } = splitResults(currentResults, openHistory, currentQuery);
         setResults(currentResults);
-        // 横向列表使用完整排序后的结果（horizontal），而不是只基于当前加载的部分结果
-        // 这样可以确保横向列表的排序不会因为增量加载而改变
-        setHorizontalResults(horizontal);
+        // 横向列表不需要在增量加载时重复设置，避免不必要的刷新
+        // 横向列表已经在第449行设置过了，使用的是完整排序后的结果
         setVerticalResults(currentVertical);
-        // 更新ref以跟踪当前的横向结果
+        // 更新ref以跟踪当前的横向结果（保持引用一致）
         horizontalResultsRef.current = horizontal;
         // 打印横向结果列表（增量加载中）
       } else {

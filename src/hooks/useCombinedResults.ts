@@ -101,38 +101,8 @@ export function useCombinedResults(options: UseCombinedResultsOptions) {
   // 这样可以避免 combinedResults 的耗时计算（66-76ms）阻塞输入响应
   const combinedResults = useDeferredValue(combinedResultsRaw);
   
-  // 防抖延迟更新 debouncedCombinedResults，避免多个搜索结果异步返回时频繁重新排序
-  const [debouncedCombinedResults, setDebouncedCombinedResults] = useState<SearchResult[]>([]);
-  const combinedResultsUpdateTimeoutRef = useRef<number | null>(null);
-  
-  useEffect(() => {
-    // 清除之前的定时器
-    if (combinedResultsUpdateTimeoutRef.current !== null) {
-      clearTimeout(combinedResultsUpdateTimeoutRef.current);
-      combinedResultsUpdateTimeoutRef.current = null;
-    }
-    
-    // 优化：如果有应用搜索结果，立即更新（0ms延迟），让应用列表快速显示
-    // 如果没有应用搜索结果，使用5ms延迟等待其他搜索结果
-    const delay = filteredApps.length > 0 ? 0 : 5;
-    
-    combinedResultsUpdateTimeoutRef.current = setTimeout(() => {
-      // 使用 startTransition 标记结果更新为非紧急更新
-      // 这样可以让输入框保持响应，不会因为结果列表更新而卡顿
-      startTransition(() => {
-        setDebouncedCombinedResults(combinedResults);
-        // 更新 debouncedResultsQueryRef 为当前查询，用于验证结果是否与当前查询匹配
-        debouncedResultsQueryRef.current = queryRef.current;
-      });
-    }, delay) as unknown as number;
-    
-    return () => {
-      if (combinedResultsUpdateTimeoutRef.current !== null) {
-        clearTimeout(combinedResultsUpdateTimeoutRef.current);
-        combinedResultsUpdateTimeoutRef.current = null;
-      }
-    };
-  }, [combinedResults, filteredApps.length]);
+  // 直接使用 combinedResults 作为 debouncedCombinedResults，不再使用防抖
+  const debouncedCombinedResults = combinedResults;
 
   // 使用 ref 来跟踪当前的 query，避免闭包问题
   const queryRef = useRef(query);
@@ -142,6 +112,11 @@ export function useCombinedResults(options: UseCombinedResultsOptions) {
 
   // 使用 ref 跟踪 debouncedCombinedResults 对应的查询，用于验证结果是否与当前查询匹配
   const debouncedResultsQueryRef = useRef<string>("");
+  
+  // 当 combinedResults 更新时，同步更新 debouncedResultsQueryRef
+  useEffect(() => {
+    debouncedResultsQueryRef.current = queryRef.current;
+  }, [combinedResults]);
 
   return {
     combinedResults: debouncedCombinedResults,
