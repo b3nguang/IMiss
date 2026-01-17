@@ -500,9 +500,7 @@ pub mod windows {
             !path_lower.contains("windowsapps")
         });
         let filtered_count = apps.len();
-        if initial_count != filtered_count {
-            eprintln!("[scan_start_menu] Filtered out {} WindowsApps entries", initial_count - filtered_count);
-        }
+        // Filtered out WindowsApps entries
         
         let apps_after_dedup = apps.len();
         let dedup_duration = dedup_start.elapsed();
@@ -620,26 +618,19 @@ pub mod windows {
                 return Ok(String::new());
             }
 
-            eprintln!("[decode_powershell_output] 输入字节长度: {}", bytes.len());
-
             // 由于我们使用了 -OutputEncoding UTF8，优先尝试 UTF-8 解码
-            eprintln!("[decode_powershell_output] 尝试 UTF-8 解码");
             match String::from_utf8(bytes.to_vec()) {
                 Ok(s) => {
-                    eprintln!("[decode_powershell_output] UTF-8 解码成功，字符串长度: {}", s.len());
-                    let preview: String = s.chars().take(200).collect();
-                    eprintln!("[decode_powershell_output] 解码结果预览: {}", preview);
                     return Ok(s);
                 }
-                Err(e) => {
-                    eprintln!("[decode_powershell_output] UTF-8 解码失败: {}，尝试其他编码...", e);
+                Err(_) => {
+                    // UTF-8 解码失败，尝试其他编码
                 }
             }
             
             // 回退方案1：尝试 UTF-16LE 解码（旧版 PowerShell 或未设置 OutputEncoding 的情况）
             if bytes.len() % 2 == 0 && bytes.len() >= 2 {
                 let has_bom = bytes.starts_with(&[0xFF, 0xFE]);
-                eprintln!("[decode_powershell_output] 尝试 UTF-16LE 解码 (has_bom: {})", has_bom);
                 
                 let data_start = if has_bom { 2 } else { 0 };
                 let data_len = bytes.len() - data_start;
@@ -657,31 +648,23 @@ pub mod windows {
                     }
 
                     if let Ok(s) = String::from_utf16(&utf16_units) {
-                        eprintln!("[decode_powershell_output] UTF-16LE 解码成功，字符串长度: {}", s.len());
-                        let preview: String = s.chars().take(200).collect();
-                        eprintln!("[decode_powershell_output] 解码结果预览: {}", preview);
                         return Ok(s);
                     }
                 }
             }
 
             // 回退方案2：尝试使用 OEM 代码页解码
-            eprintln!("[decode_powershell_output] 尝试 OEM 代码页解码");
             match decode_oem_bytes(bytes) {
                 Ok(oem_str) => {
-                    let preview: String = oem_str.chars().take(200).collect();
-                    eprintln!("[decode_powershell_output] OEM 解码成功，预览: {}", preview);
                     return Ok(oem_str);
                 }
-                Err(oem_err) => {
-                    eprintln!("[decode_powershell_output] OEM 解码失败: {}", oem_err);
+                Err(_) => {
+                    // OEM 解码失败
                 }
             }
             
             // 最后回退：使用 UTF-8 lossy 解码
             let lossy = String::from_utf8_lossy(bytes);
-            let preview: String = lossy.chars().take(200).collect();
-            eprintln!("[decode_powershell_output] 使用 UTF-8 lossy 解码，预览: {}", preview);
             Ok(lossy.to_string())
         }
 
@@ -717,16 +700,6 @@ pub mod windows {
         // 使用 PowerShell 扫描 UWP 应用
         // 通过 -OutputEncoding UTF8 强制 UTF-8 编码输出，避免 UTF-16LE 解码问题
         // 这样可以确保 "B64JSON:" 等前缀能被正确识别，不会出现 UNKNOWN 模式的乱码
-        // #region agent log - before spawn
-        agent_log(
-            "H1",
-            "app_search.rs:scan_uwp_apps_direct:spawn_before",
-            "about to run PowerShell Get-StartApps",
-            serde_json::json!({
-                "script_preview": script.lines().take(5).collect::<Vec<_>>(),
-            }),
-        );
-        // #endregion
 
         crate::log!("AppScan", "[UWP] 准备执行 PowerShell Get-StartApps 命令");
         let powershell_start = std::time::Instant::now();
@@ -753,36 +726,8 @@ pub mod windows {
             output.stdout.len(),
             output.stderr.len());
 
-        // #region agent log - after spawn
-        agent_log(
-            "H1",
-            "app_search.rs:scan_uwp_apps_direct:spawn_after",
-            "powershell finished",
-            serde_json::json!({
-                "exit_code": output.status.code(),
-                "stdout_len": output.stdout.len(),
-                "stderr_len": output.stderr.len(),
-            }),
-        );
-        // #endregion
-
-        // 如果 stderr 有内容，记录预览（即使 exit_code 成功）
-        if !output.stderr.is_empty() {
-            let stderr_preview = String::from_utf8_lossy(&output.stderr);
-            agent_log(
-                "H1",
-                "app_search.rs:scan_uwp_apps_direct:stderr_preview",
-                "powershell stderr preview",
-                serde_json::json!({
-                    "stderr": stderr_preview.chars().take(500).collect::<String>(),
-                }),
-            );
-        }
 
         crate::log!("AppScan", "[UWP] 开始解析 PowerShell 输出");
-        eprintln!("[scan_uwp_apps] PowerShell exit code: {}", output.status.code().unwrap_or(-1));
-        eprintln!("[scan_uwp_apps] stderr length: {} bytes, stdout length: {} bytes", 
-                  output.stderr.len(), output.stdout.len());
 
         // 先尝试解码 stdout（无论成功失败都先看看内容）
         let stdout_result = decode_powershell_output(&output.stdout);
@@ -790,31 +735,9 @@ pub mod windows {
         if !output.status.success() {
             // PowerShell 执行失败
             crate::log!("AppScan", "[UWP] PowerShell 执行失败，退出码: {}", output.status.code().unwrap_or(-1));
-            eprintln!("[scan_uwp_apps] ⚠ PowerShell 执行失败！");
             
             // 尝试解码 stderr（可能包含错误信息）
             let stderr_str = String::from_utf8_lossy(&output.stderr);
-            eprintln!("[scan_uwp_apps] stderr (UTF-8 lossy): {}", stderr_str);
-            
-            // 显示 stdout 的原始字节（前200字节）
-            if !output.stdout.is_empty() {
-                let stdout_preview = if output.stdout.len() > 200 {
-                    format!("{:?}...", &output.stdout[..200])
-                } else {
-                    format!("{:?}", output.stdout)
-                };
-                eprintln!("[scan_uwp_apps] stdout 原始字节: {}", stdout_preview);
-            }
-            
-            // 如果 stdout 解码成功，也显示一下
-            match &stdout_result {
-                Ok(s) => {
-                    eprintln!("[scan_uwp_apps] stdout 解码成功: {}", s);
-                }
-                Err(e) => {
-                    eprintln!("[scan_uwp_apps] stdout 解码失败: {}", e);
-                }
-            }
             
             // 如果 stderr 为空，使用 stdout 作为错误信息
             let error_msg = if stderr_str.trim().is_empty() {
@@ -835,13 +758,10 @@ pub mod windows {
         let stdout = stdout_result?;
         let stdout_trimmed = stdout.trim();
         crate::log!("AppScan", "[UWP] 输出解码完成 (耗时 {}ms, 长度 {} bytes)", decode_start.elapsed().as_millis(), stdout_trimmed.len());
-        eprintln!("[scan_uwp_apps] PowerShell stdout length: {} bytes", stdout_trimmed.len());
         
         if stdout_trimmed.is_empty() {
             let stderr_str = String::from_utf8_lossy(&output.stderr);
             crate::log!("AppScan", "[UWP] PowerShell 返回空输出");
-            eprintln!("[scan_uwp_apps] ⚠ PowerShell returned empty stdout");
-            eprintln!("[scan_uwp_apps] stderr 预览: {}", stderr_str);
             // #region agent log - empty stdout
             agent_log(
                 "H1",
@@ -855,18 +775,6 @@ pub mod windows {
             return Err(format!("PowerShell Get-StartApps returned empty output, stderr: {}", stderr_str));
         }
 
-        // #region agent log - stdout decoded
-        let stdout_preview: String = stdout_trimmed.chars().take(200).collect();
-        agent_log(
-            "H2",
-            "app_search.rs:scan_uwp_apps_direct:stdout_decoded",
-            "stdout decoded",
-            serde_json::json!({
-                "stdout_len": stdout_trimmed.len(),
-                "preview": stdout_preview,
-            }),
-        );
-        // #endregion
 
         crate::log!("AppScan", "[UWP] 检测输出模式...");
         // 处理 B64JSON:/B64:/RAW: 前缀；如果没有前缀则保持原样
@@ -886,21 +794,8 @@ pub mod windows {
         if mode == "UNKNOWN" {
             let first_200: String = stdout_trimmed.chars().take(200).collect();
             crate::log!("AppScan", "[UWP] 警告: UNKNOWN 模式，输出前 200 字符: {}", first_200);
-            eprintln!("[scan_uwp_apps] 警告: 未识别的输出模式，前 200 字符: {}", first_200);
         }
         
-        // #region agent log - stdout mode
-        agent_log(
-            "H2",
-            "app_search.rs:scan_uwp_apps_direct:stdout_mode",
-            "stdout mode detected",
-            serde_json::json!({
-                "mode": mode,
-                "payload_len": payload_str.len(),
-                "payload_preview": payload_str.chars().take(200).collect::<String>(),
-            }),
-        );
-        // #endregion
 
         crate::log!("AppScan", "[UWP] 开始 Base64 解码...");
         let base64_start = std::time::Instant::now();
@@ -948,14 +843,6 @@ pub mod windows {
         let preview_duration = preview_start.elapsed();
         crate::log!("AppScan", "[UWP] 输出预览生成完成 (预览长度: {} chars, 耗时 {}ms)", preview.len(), preview_duration.as_millis());
         
-        // 输出预览可能很慢，添加计时
-        let eprintln_start = std::time::Instant::now();
-        eprintln!("[scan_uwp_apps] PowerShell output preview: {}", preview);
-        let eprintln_duration = eprintln_start.elapsed();
-        if eprintln_duration.as_millis() > 10 {
-            crate::log!("AppScan", "[UWP] 警告: eprintln 输出耗时 {}ms", eprintln_duration.as_millis());
-        }
-        
         crate::log!("AppScan", "[UWP] 检查 Unicode 转义序列...");
         let unicode_check_start = std::time::Instant::now();
         
@@ -964,19 +851,6 @@ pub mod windows {
         
         let unicode_check_duration = unicode_check_start.elapsed();
         crate::log!("AppScan", "[UWP] Unicode 检查完成 (找到 {} 个转义序列, 耗时 {}ms)", unicode_escape_count, unicode_check_duration.as_millis());
-        
-        if unicode_escape_count > 0 {
-            eprintln!("[scan_uwp_apps] 检测到 {} 个 Unicode 转义序列", unicode_escape_count);
-            // 提取前几个 Unicode 转义序列
-            let mut found_escapes = Vec::new();
-            for (i, _) in preview.match_indices("\\u").take(5) {
-                if i + 6 <= preview.len() {
-                    let escape = &preview[i..i+6];
-                    found_escapes.push(escape);
-                }
-            }
-            eprintln!("[scan_uwp_apps] 前几个 Unicode 转义序列: {:?}", found_escapes);
-        }
 
         crate::log!("AppScan", "[UWP] 开始解析 JSON (长度 {} bytes)...", decoded_json.len());
         let json_parse_start = std::time::Instant::now();
@@ -999,8 +873,7 @@ pub mod windows {
                 // Try parsing as single object
                 match serde_json::from_str::<StartAppEntry>(&decoded_json) {
                     Ok(entry) => vec![entry],
-                    Err(e2) => {
-                        eprintln!("[scan_uwp_apps] Failed to parse JSON: {} (also tried single object: {})", e, e2);
+                    Err(_) => {
                         return Err(format!("Failed to parse shell:AppsFolder JSON: {}", e));
                     }
                 }
@@ -1009,7 +882,6 @@ pub mod windows {
 
         let json_parse_duration = json_parse_start.elapsed();
         crate::log!("AppScan", "[UWP] JSON 解析成功，找到 {} 个条目 (耗时 {}ms)", entries.len(), json_parse_duration.as_millis());
-        eprintln!("[scan_uwp_apps] Parsed {} entries from JSON", entries.len());
 
         // #region agent log - json parsed
         let sample: Vec<_> = entries
@@ -1044,9 +916,6 @@ pub mod windows {
             
             // 检查是否包含替换字符（说明解码可能有问题）
             let replacement_count = name.chars().filter(|&c| c == '\u{FFFD}').count();
-            if replacement_count > 0 {
-                eprintln!("[scan_uwp_apps] ⚠ Entry {} name contains {} replacement characters (可能解码有问题)", idx, replacement_count);
-            }
             
             // 检查是否包含中文
             let has_chinese = contains_chinese(name);
@@ -1054,39 +923,7 @@ pub mod windows {
                 chinese_app_count += 1;
             }
             
-            // 前10个应用或所有中文应用都输出详细信息
-            if idx < 10 || has_chinese || replacement_count > 0 {
-                eprintln!("[scan_uwp_apps] Entry {}: name='{}' (len={}, has_chinese={}, replacements={}), app_id='{}'", 
-                    idx, name, name.len(), has_chinese, replacement_count, app_id);
-                
-                // 输出原始 JSON 中的 name 字段用于调试
-                if idx < 5 {
-                    let name_chars: Vec<String> = name.chars().take(20).map(|c| {
-                        if c == '\u{FFFD}' {
-                            format!("[REPLACEMENT]")
-                        } else {
-                            format!("'{}' (U+{:04X})", c, c as u32)
-                        }
-                    }).collect();
-                    eprintln!("[scan_uwp_apps] Entry {} name chars (first 20): {:?}", idx, name_chars);
-                }
-                
-                // 如果是中文应用或包含替换字符，输出字节信息用于调试
-                if has_chinese || replacement_count > 0 {
-                    let name_bytes = name.as_bytes();
-                    let name_bytes_preview = if name_bytes.len() > 50 {
-                        format!("{:?}...", &name_bytes[..50])
-                    } else {
-                        format!("{:?}", name_bytes)
-                    };
-                    eprintln!("[scan_uwp_apps] Entry {} name bytes (first 50): {}", idx, name_bytes_preview);
-                }
-            }
-            
             if name.is_empty() || app_id.is_empty() {
-                if idx < 10 {
-                    eprintln!("[scan_uwp_apps] Entry {} skipped: empty name or app_id", idx);
-                }
                 continue;
             }
 
@@ -1140,18 +977,6 @@ pub mod windows {
         crate::log!("AppScan", "[UWP] 应用条目处理完成 - 创建了 {} 个应用（其中 {} 个中文应用）(耗时 {}ms)", 
             apps.len(), chinese_app_count, processing_duration.as_millis());
         crate::log!("AppScan", "[UWP] 成功创建 {} 个应用（其中 {} 个中文名）", apps.len(), chinese_app_count);
-        eprintln!("[scan_uwp_apps] Successfully created {} apps ({} with Chinese names)", 
-            apps.len(), chinese_app_count);
-        
-        // 输出所有中文应用的名称用于验证
-        if chinese_app_count > 0 {
-            eprintln!("[scan_uwp_apps] Chinese app names found:");
-            for app in &apps {
-                if contains_chinese(&app.name) {
-                    eprintln!("[scan_uwp_apps]   - '{}' (path: {})", app.name, app.path);
-                }
-            }
-        }
         
         Ok(apps)
     }
@@ -1432,10 +1257,6 @@ pub mod windows {
                 SHGFI_ICON | SHGFI_LARGEICON | SHGFI_USEFILEATTRIBUTES,
             );
             
-            // #region agent log
-            eprintln!("[UWP图标SHGetFileInfo] 调用: app_path={}, result={}, h_icon={}", 
-                app_path, result, shfi.h_icon);
-            // #endregion
             
             if result == 0 || shfi.h_icon == 0 {
                 return None;
@@ -1444,14 +1265,6 @@ pub mod windows {
             // 使用现有的 icon_to_png 函数转换图标
             let icon_result = icon_to_png(shfi.h_icon);
             
-            // #region agent log
-            if let Some(ref png_base64) = icon_result {
-                eprintln!("[UWP图标SHGetFileInfo] icon_to_png 成功: app_path={}, base64_len={}", 
-                    app_path, png_base64.len());
-            } else {
-                eprintln!("[UWP图标SHGetFileInfo] icon_to_png 失败: app_path={}", app_path);
-            }
-            // #endregion
             
             // 清理图标句柄
             DestroyIcon(shfi.h_icon);
@@ -1651,15 +1464,9 @@ pub mod windows {
         let expanded_path_str = expand_known_folder_guid(&file_path_str);
         let expanded_path = Path::new(&expanded_path_str);
         
-        eprintln!("[EXE图标Native] 开始提取: file_path={}, expanded_path={}", file_path_str, expanded_path_str);
-        
         // 优先使用 IShellItemImageFactory（最可靠）
         if let Some(result) = extract_icon_png_via_shell(expanded_path, 32) {
-            eprintln!("[EXE图标Native] IShellItemImageFactory 成功: file_path={}, icon_len={}", 
-                expanded_path_str, result.len());
             return Some(result);
-        } else {
-            eprintln!("[EXE图标Native] IShellItemImageFactory 失败: file_path={}", expanded_path_str);
         }
         
         // 回退方案: 使用 ExtractIconExW + icon_to_png
@@ -1673,7 +1480,6 @@ pub mod windows {
         unsafe {
             let hr = CoInitializeEx(std::ptr::null_mut(), COINIT_APARTMENTTHREADED as u32);
             if hr < 0 && hr != 0x00000001 {
-                eprintln!("[EXE图标Native] CoInitializeEx 失败: file_path={}, hr=0x{:08X}", expanded_path_str, hr);
                 return None;
             }
         }
@@ -1696,23 +1502,15 @@ pub mod windows {
                     1,
                 );
 
-                eprintln!("[EXE图标Native] ExtractIconExW 调用: file_path={}, count={}, icon_handle={}", 
-                    expanded_path_str, count, large_icons[0]);
-
                 if count > 0 && large_icons[0] != 0 {
                     if let Some(png_data) = icon_to_png(large_icons[0]) {
-                        eprintln!("[EXE图标Native] icon_to_png 成功: file_path={}, png_len={}", 
-                            expanded_path_str, png_data.len());
                         DestroyIcon(large_icons[0]);
                         // 返回纯 base64 字符串，不带 data:image/png;base64, 前缀
                         return Some(png_data);
                     }
-                    eprintln!("[EXE图标Native] icon_to_png 失败: file_path={}", expanded_path_str);
                     DestroyIcon(large_icons[0]);
                 }
             }
-
-            eprintln!("[EXE图标Native] 提取失败，返回 None: file_path={}", expanded_path_str);
             None
         })();
 
@@ -1721,11 +1519,6 @@ pub mod windows {
             CoUninitialize();
         }
 
-        let success = result.is_some();
-        let icon_len = result.as_ref().map(|s| s.len()).unwrap_or(0);
-        eprintln!("[EXE图标Native] 最终结果: file_path={}, success={}, icon_len={}", 
-            file_path_str, success, icon_len);
-
         result
     }
 
@@ -1733,24 +1526,10 @@ pub mod windows {
     // Uses PowerShell with parameter passing to avoid encoding issues
     // Now tries Native API first, falls back to PowerShell if Native API fails
     pub fn extract_icon_base64(file_path: &Path) -> Option<String> {
-        let file_path_str = file_path.to_string_lossy().to_string();
-        
-        // #region agent log
-        eprintln!("[图标提取] 开始提取: file_path={}", file_path_str);
-        // #endregion
-        
         // 首先尝试 Native API 方法（更可靠，特别是对于某些 exe 文件如 v2rayN.exe）
         if let Some(result) = extract_exe_icon_base64_native(file_path) {
-            // #region agent log
-            eprintln!("[图标提取] Native API 成功: file_path={}, icon_len={}", 
-                file_path_str, result.len());
-            // #endregion
             return Some(result);
         }
-        
-        // #region agent log
-        eprintln!("[图标提取] Native API 失败，尝试 PowerShell: file_path={}", file_path_str);
-        // #endregion
         // 如果 Native API 失败，回退到 PowerShell 方法
         // Convert path to UTF-16 bytes for PowerShell parameter
         let path_utf16: Vec<u16> = file_path.to_string_lossy().encode_utf16().collect();
@@ -1840,30 +1619,14 @@ try {
         // Clean up temp script
         let _ = std::fs::remove_file(&temp_script);
 
-        // #region agent log
-        let success = output.status.success();
-        let stdout_len = output.stdout.len();
-        let stderr_len = output.stderr.len();
-        eprintln!("[图标提取] PowerShell 执行结果: file_path={}, success={}, stdout_len={}, stderr_len={}", 
-            file_path_str, success, stdout_len, stderr_len);
-        // #endregion
-
         if output.status.success() {
             let base64 = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if !base64.is_empty() && base64.len() > 100 {
-                // #region agent log
-                eprintln!("[图标提取] PowerShell 成功: file_path={}, base64_len={}", 
-                    file_path_str, base64.len());
-                // #endregion
                 // 返回纯 base64 字符串，不带 data:image/png;base64, 前缀
                 // 前端会统一添加前缀
                 return Some(base64);
             }
         }
-        
-        // #region agent log
-        eprintln!("[图标提取] 提取失败，返回 None: file_path={}", file_path_str);
-        // #endregion
         None
     }
 
@@ -1882,7 +1645,6 @@ try {
             let hr = CoInitializeEx(std::ptr::null_mut(), COINIT_APARTMENTTHREADED as u32);
             // 如果已经初始化，返回 S_FALSE (0x00000001)，这是正常的
             if hr < 0 && hr != 0x00000001 {
-                eprintln!("[extract_icon_png_via_shell] CoInitializeEx 失败: hr=0x{:08X}", hr);
                 return None;
             }
             
@@ -1897,9 +1659,6 @@ try {
                 // 展开 GUID 格式的路径（如 {1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\RecoveryDrive.exe）
                 normalized_path = expand_known_folder_guid(&normalized_path);
                 
-                eprintln!("[extract_icon_png_via_shell] 规范化路径: 原始={}, 规范化后={}", 
-                    path_str, normalized_path);
-                
                 // 将规范化后的路径转换为 PCWSTR
                 let path_wide: Vec<u16> = OsStr::new(&normalized_path)
                     .encode_wide()
@@ -1911,9 +1670,7 @@ try {
                 use ::windows::Win32::UI::Shell::IShellItem;
                 let shell_item: IShellItem = match SHCreateItemFromParsingName(path_pcwstr, None) {
                     Ok(item) => item,
-                    Err(e) => {
-                        eprintln!("[extract_icon_png_via_shell] SHCreateItemFromParsingName 失败: hr=0x{:08X}, 路径={}", 
-                            e.code().0, normalized_path);
+                    Err(_) => {
                         return None;
                     }
                 };
@@ -1922,8 +1679,7 @@ try {
                 use ::windows::core::Interface;
                 let image_factory: IShellItemImageFactory = match shell_item.cast() {
                     Ok(factory) => factory,
-                    Err(e) => {
-                        eprintln!("[extract_icon_png_via_shell] QueryInterface IShellItemImageFactory 失败: hr=0x{:08X}", e.code().0);
+                    Err(_) => {
                         return None;
                     }
                 };
@@ -1945,9 +1701,6 @@ try {
                     // 调用 GetImage 获取 HBITMAP（已包含 alpha 通道）
                     match image_factory.GetImage(icon_size, *flags) {
                         Ok(hbitmap) => {
-                            eprintln!("[extract_icon_png_via_shell] GetImage 成功: file_path={}, flags=0x{:08X}, hbitmap=0x{:016X}, size={}", 
-                                file_path.to_string_lossy(), flags.0, hbitmap.0 as usize, size);
-                            
                             // 将 HBITMAP 转换为 PNG
                             let hbitmap_value = hbitmap.0 as isize;
                             let png_result = bitmap_to_png_direct(hbitmap_value, size);
@@ -1956,18 +1709,11 @@ try {
                             let _ = DeleteObject(HGDIOBJ(hbitmap.0));
                             
                             if let Some(png_base64) = png_result {
-                                eprintln!("[extract_icon_png_via_shell] 成功提取图标: file_path={}, size={}, base64_len={}, flags=0x{:08X}", 
-                                    file_path.to_string_lossy(), size, png_base64.len(), flags.0);
                                 // 返回纯 base64 字符串，不带 data:image/png;base64, 前缀
                                 return Some(png_base64);
-                            } else {
-                                eprintln!("[extract_icon_png_via_shell] bitmap_to_png_direct 失败: file_path={}, flags=0x{:08X}", 
-                                    file_path.to_string_lossy(), flags.0);
                             }
                         },
-                        Err(e) => {
-                            eprintln!("[extract_icon_png_via_shell] GetImage 失败 (尝试 {}): hr=0x{:08X}", 
-                                idx, e.code().0);
+                        Err(_) => {
                             continue; // 尝试下一个标志
                         }
                     }
@@ -1997,14 +1743,12 @@ try {
             // 获取屏幕 DC
             let hdc_screen = GetDC(0);
             if hdc_screen == 0 {
-                eprintln!("[bitmap_to_png_direct] GetDC 失败");
                 return None;
             }
             
             let hdc = CreateCompatibleDC(hdc_screen);
             if hdc == 0 {
                 ReleaseDC(0, hdc_screen);
-                eprintln!("[bitmap_to_png_direct] CreateCompatibleDC 失败");
                 return None;
             }
             
@@ -2023,19 +1767,14 @@ try {
             if GetObjectW(hbitmap, std::mem::size_of::<BITMAP>() as i32, &mut bitmap as *mut _ as *mut _) == 0 {
                 DeleteDC(hdc);
                 ReleaseDC(0, hdc_screen);
-                eprintln!("[bitmap_to_png_direct] GetObjectW 失败");
                 return None;
             }
             
             let width = bitmap.bmWidth as u32;
             let height = bitmap.bmHeight.abs() as u32; // 取绝对值，处理 top-down 位图
             
-            eprintln!("[bitmap_to_png_direct] 位图信息: width={}, height={}, bitsPixel={}, widthBytes={}", 
-                width, height, bitmap.bmBitsPixel, bitmap.bmWidthBytes);
-            
             // 验证位图格式（必须是 32 位）
             if bitmap.bmBitsPixel != 32 {
-                eprintln!("[bitmap_to_png_direct] 位图不是 32 位: bitsPixel={}", bitmap.bmBitsPixel);
                 DeleteDC(hdc);
                 ReleaseDC(0, hdc_screen);
                 return None;
@@ -2088,12 +1827,8 @@ try {
             ReleaseDC(0, hdc_screen);
             
             if lines_written == 0 {
-                eprintln!("[bitmap_to_png_direct] GetDIBits 失败: lines_written=0");
                 return None;
             }
-            
-            eprintln!("[bitmap_to_png_direct] GetDIBits 成功: lines_written={}, buffer_size={}", 
-                lines_written, buffer_size);
             
             // 检查位图数据是否包含有效内容
             let total_pixels = width * height;
@@ -2101,19 +1836,13 @@ try {
                 .filter(|chunk| chunk.iter().any(|&b| b != 0))
                 .count();
             
-            eprintln!("[bitmap_to_png_direct] 位图数据检查: 总像素={}, 非零像素={}, 非零比例={:.2}%", 
-                total_pixels, non_zero_pixels, 
-                (non_zero_pixels as f32 / total_pixels as f32) * 100.0);
-            
             // 如果所有像素都是 0，说明位图无效
             if non_zero_pixels == 0 {
-                eprintln!("[bitmap_to_png_direct] 警告: 所有像素都是 0，位图可能无效");
                 return None;
             }
             
             // 如果需要缩放，使用简单的最近邻插值
             let mut final_bits = if width != target_size || height != target_size {
-                eprintln!("[bitmap_to_png_direct] 需要缩放: {}x{} -> {}x{}", width, height, target_size, target_size);
                 let mut scaled = vec![0u8; (target_size * target_size * 4) as usize];
                 let scale_x = width as f32 / target_size as f32;
                 let scale_y = height as f32 / target_size as f32;
@@ -2154,11 +1883,8 @@ try {
                 writer.write_image_data(&final_bits).ok()?;
             }
             
-            eprintln!("[bitmap_to_png_direct] PNG 编码完成: png_data_len={}", png_data.len());
-            
             // 验证 PNG 数据长度
             if png_data.len() < 200 {
-                eprintln!("[bitmap_to_png_direct] 警告: PNG 数据长度过小 ({} 字节)", png_data.len());
                 return None;
             }
             
@@ -2171,41 +1897,23 @@ try {
     // This is the new implementation using Rust + Windows API directly
     // Falls back to PowerShell method if Native API fails
     pub fn extract_lnk_icon_base64_native(lnk_path: &Path) -> Option<String> {
-        let lnk_path_str = lnk_path.to_string_lossy().to_string();
-        
-        eprintln!("[LNK图标Native] 开始提取: lnk_path={}", lnk_path_str);
-        
         // 方法 1: 优先直接从 .lnk 文件本身提取图标（与测试函数一致）
         // 测试发现：直接从 .lnk 文件提取的图标是正确的，特别是对于系统快捷方式和某些 .exe 快捷方式
-        eprintln!("[LNK图标Native] 尝试直接从 .lnk 文件提取: lnk_path={}", lnk_path_str);
         if let Some(result) = extract_icon_png_via_shell(lnk_path, 32) {
-            eprintln!("[LNK图标Native] 直接从 .lnk 文件提取成功: lnk_path={}, icon_len={}", 
-                lnk_path_str, result.len());
             return Some(result);
-        } else {
-            eprintln!("[LNK图标Native] 直接从 .lnk 文件提取失败，尝试回退方案: lnk_path={}", lnk_path_str);
         }
         
         // 方法 2: 如果直接从 .lnk 文件提取失败，解析 .lnk 文件获取 TargetPath 作为回退方案
         let (icon_source_path, icon_index) = match get_lnk_icon_location(lnk_path) {
-            Some(result) => {
-                eprintln!("[LNK图标Native] get_lnk_icon_location 成功: lnk_path={}, icon_source_path={}, icon_index={}", 
-                    lnk_path_str, result.0.to_string_lossy(), result.1);
-                result
-            },
-            None => {
-                eprintln!("[LNK图标Native] get_lnk_icon_location 失败: lnk_path={}", lnk_path_str);
-                return None;
-            }
+            Some(result) => result,
+            None => return None,
         };
 
         let icon_source_path_str = icon_source_path.to_string_lossy().to_string();
         
         // 检查是否是 shell:AppsFolder 路径（UWP 应用）
         if icon_source_path_str.to_lowercase().starts_with("shell:appsfolder\\") {
-            eprintln!("[LNK图标Native] 检测到 shell:AppsFolder 路径，使用 UWP 图标提取: path={}", icon_source_path_str);
             if let Some(result) = extract_uwp_app_icon_base64(&icon_source_path_str) {
-                eprintln!("[LNK图标Native] UWP 图标提取成功: path={}", icon_source_path_str);
                 return Some(result);
             }
         }
@@ -2213,7 +1921,6 @@ try {
         let result = (|| -> Option<String> {
             // 回退方案: 从目标文件提取
             if let Some(result) = extract_icon_png_via_shell(&icon_source_path, 32) {
-                eprintln!("[LNK图标Native] IShellItemImageFactory 成功 (从目标文件): icon_source_path={}", icon_source_path_str);
                 return Some(result);
             }
             
@@ -2228,7 +1935,6 @@ try {
             unsafe {
                 let hr = CoInitializeEx(std::ptr::null_mut(), COINIT_APARTMENTTHREADED as u32);
                 if hr < 0 && hr != 0x00000001 {
-                    eprintln!("[LNK图标Native] CoInitializeEx 失败: hr=0x{:08X}", hr);
                     return None;
                 }
             }
@@ -2250,18 +1956,12 @@ try {
                     1,
                 );
 
-                eprintln!("[LNK图标Native] ExtractIconExW 调用: icon_source_path={}, icon_index={}, count={}, icon_handle={}", 
-                    icon_source_path_str, icon_index, count, large_icons[0]);
-
                 if count > 0 && large_icons[0] != 0 {
                     if let Some(png_data) = icon_to_png(large_icons[0]) {
-                        eprintln!("[LNK图标Native] icon_to_png 成功: icon_source_path={}, png_len={}", 
-                            icon_source_path_str, png_data.len());
                         DestroyIcon(large_icons[0]);
                         // 返回纯 base64 字符串，不带 data:image/png;base64, 前缀
                         Some(png_data)
                     } else {
-                        eprintln!("[LNK图标Native] icon_to_png 失败: icon_source_path={}", icon_source_path_str);
                         DestroyIcon(large_icons[0]);
                         None
                     }
@@ -2282,13 +1982,8 @@ try {
                         1,
                     );
 
-                    eprintln!("[LNK图标Native] ExtractIconExW 重试索引0: icon_source_path={}, count={}, icon_handle={}", 
-                        icon_source_path_str, count, large_icons[0]);
-
                     if count > 0 && large_icons[0] != 0 {
                         if let Some(png_data) = icon_to_png(large_icons[0]) {
-                            eprintln!("[LNK图标Native] icon_to_png 成功(重试): icon_source_path={}, png_len={}", 
-                                icon_source_path_str, png_data.len());
                             DestroyIcon(large_icons[0]);
                             // 返回纯 base64 字符串，不带 data:image/png;base64, 前缀
                             Some(png_data)
@@ -2307,18 +2002,8 @@ try {
                 CoUninitialize();
             }
             
-            if let Some(result) = fallback_result {
-                return Some(result);
-            }
-
-            eprintln!("[LNK图标Native] 所有方法都失败: lnk_path={}", lnk_path_str);
-            None
+            fallback_result
         })();
-
-        let success = result.is_some();
-        let icon_len = result.as_ref().map(|s| s.len()).unwrap_or(0);
-        eprintln!("[LNK图标Native] 最终结果: lnk_path={}, success={}, icon_len={}", 
-            lnk_path_str, success, icon_len);
 
         result
     }
@@ -2447,24 +2132,10 @@ try {
     /// 用于调试和比较不同提取方法的效果
     pub fn test_all_icon_extraction_methods(lnk_path: &Path) -> Vec<(String, Option<String>)> {
         let mut results: Vec<(String, Option<String>)> = Vec::new();
-        let lnk_path_str = lnk_path.to_string_lossy().to_string();
-        
-        eprintln!("[测试图标提取] 开始测试所有方法: lnk_path={}", lnk_path_str);
-        
         // 1. 解析 .lnk 文件获取 IconLocation 和 TargetPath
         let (icon_location_info, target_path_str) = match get_lnk_all_paths(lnk_path) {
-            Some(result) => {
-                if let Some(ref icon_loc) = result.0 {
-                    eprintln!("[测试图标提取] IconLocation: path={}, index={}", 
-                        icon_loc.0.to_string_lossy(), icon_loc.1);
-                }
-                if let Some(ref target) = result.1 {
-                    eprintln!("[测试图标提取] TargetPath: path={}", target);
-                }
-                result
-            },
+            Some(result) => result,
             None => {
-                eprintln!("[测试图标提取] 解析LNK文件失败");
                 results.push(("解析LNK文件".to_string(), None));
                 return results;
             }
@@ -2472,8 +2143,6 @@ try {
         
         // 2. 测试从 IconLocation 提取（如果存在）
         if let Some((icon_path, icon_index)) = &icon_location_info {
-            let icon_path_str = icon_path.to_string_lossy().to_string();
-            eprintln!("[测试图标提取] 从 IconLocation 提取: path={}, index={}", icon_path_str, icon_index);
             
             // 2.1 Shell API
             if let Some(result) = extract_icon_png_via_shell(icon_path, 32) {
@@ -2526,11 +2195,8 @@ try {
         
         // 3. 测试从 TargetPath 提取（如果存在）
         if let Some(ref target_path_str) = target_path_str {
-            eprintln!("[测试图标提取] 从 TargetPath 提取: path={}", target_path_str);
-            
             // 3.1 测试 UWP 方法（如果 TargetPath 是 shell:AppsFolder）
             if target_path_str.to_lowercase().starts_with("shell:appsfolder\\") {
-                eprintln!("[测试图标提取] 测试 UWP 方法: path={}", target_path_str);
                 if let Some(result) = extract_uwp_app_icon_base64(target_path_str) {
                     results.push(("TargetPath -> UWP方法 (shell:AppsFolder)".to_string(), Some(result)));
                 } else {
@@ -2550,14 +2216,7 @@ try {
         }
         
         // 4. 测试直接从 .lnk 文件本身提取（使用 Shell API）
-        eprintln!("[测试图标提取] 测试直接从 .lnk 文件提取: path={}", lnk_path_str);
         let direct_lnk_result = extract_icon_png_via_shell(lnk_path, 32);
-        if let Some(ref result) = direct_lnk_result {
-            eprintln!("[测试图标提取] 直接从 .lnk 文件提取成功: path={}, icon_len={}", 
-                lnk_path_str, result.len());
-        } else {
-            eprintln!("[测试图标提取] 直接从 .lnk 文件提取失败: path={}", lnk_path_str);
-        }
         results.push(("直接从 .lnk 文件 -> Shell API".to_string(), direct_lnk_result));
         
         // 5. 测试 SHGetFileInfoW 方法（如果 TargetPath 存在）
@@ -2565,7 +2224,6 @@ try {
             if !target_path_str.to_lowercase().starts_with("shell:appsfolder\\") {
                 let target_path_buf = PathBuf::from(target_path_str);
                 if target_path_buf.exists() {
-                    eprintln!("[测试图标提取] 测试 SHGetFileInfoW 方法: path={}", target_path_str);
                     if let Some(result) = extract_icon_via_shgetfileinfo(&target_path_buf) {
                         results.push(("TargetPath -> SHGetFileInfoW".to_string(), Some(result)));
                     } else {
@@ -2577,7 +2235,6 @@ try {
         
         // 6. 测试 SHGetFileInfoW 方法（如果 IconLocation 存在）
         if let Some((icon_path, _)) = &icon_location_info {
-            eprintln!("[测试图标提取] 测试 SHGetFileInfoW 方法 (IconLocation): path={}", icon_path.to_string_lossy());
             if let Some(result) = extract_icon_via_shgetfileinfo(icon_path) {
                 results.push(("IconLocation -> SHGetFileInfoW".to_string(), Some(result)));
             } else {
@@ -2586,11 +2243,8 @@ try {
         }
         
         // 7. 测试 PowerShell 方法（作为参考）
-        eprintln!("[测试图标提取] 测试 PowerShell 方法: path={}", lnk_path_str);
         let ps_result = extract_lnk_icon_base64(lnk_path);
         results.push(("PowerShell方法 (fallback)".to_string(), ps_result));
-        
-        eprintln!("[测试图标提取] 测试完成，共 {} 种方法", results.len());
         results
     }
     
@@ -2695,7 +2349,6 @@ try {
             
             // 验证 PNG 数据长度
             if png_bytes.len() < 1000 {
-                eprintln!("[测试] .lnk 图标 PNG 数据长度过小: {} 字节", png_bytes.len());
                 false
             } else {
                 // 解析 PNG 检查非零像素
@@ -2708,11 +2361,9 @@ try {
                     .filter(|chunk| chunk.iter().any(|&b| b != 0))
                     .count();
                 
-                eprintln!("[测试] .lnk 图标: PNG长度={}, 非零像素={}", png_bytes.len(), non_zero_pixels);
                 non_zero_pixels > 0
             }
         } else {
-            eprintln!("[测试] .lnk 图标提取失败");
             false
         };
         
@@ -2726,7 +2377,6 @@ try {
             
             // 验证 PNG 数据长度
             if png_bytes.len() < 1000 {
-                eprintln!("[测试] .exe 图标 PNG 数据长度过小: {} 字节", png_bytes.len());
                 false
             } else {
                 // 解析 PNG 检查非零像素
@@ -2739,11 +2389,9 @@ try {
                     .filter(|chunk| chunk.iter().any(|&b| b != 0))
                     .count();
                 
-                eprintln!("[测试] .exe 图标: PNG长度={}, 非零像素={}", png_bytes.len(), non_zero_pixels);
                 non_zero_pixels > 0
             }
         } else {
-            eprintln!("[测试] .exe 图标提取失败");
             false
         };
         
@@ -2839,8 +2487,6 @@ try {
                 DI_NORMAL,
             );
             
-            eprintln!("[icon_to_png] DrawIconEx 结果: success={}", draw_result != 0);
-
             // 读取位图数据
             let mut bitmap = BITMAP {
                 bmType: 0,
@@ -2869,7 +2515,6 @@ try {
             ReleaseDC(0, hdc_screen);
 
             if lines_written == 0 {
-                eprintln!("[icon_to_png] GetDIBits 失败: lines_written=0");
                 return None;
             }
 
@@ -2878,14 +2523,9 @@ try {
             let non_zero_pixels = dib_bits.chunks_exact(4)
                 .filter(|chunk| chunk.iter().any(|&b| b != 0))
                 .count();
-            
-            eprintln!("[icon_to_png] 位图数据检查: 总像素={}, 非零像素={}, 非零比例={:.2}%", 
-                total_pixels, non_zero_pixels, 
-                (non_zero_pixels as f32 / total_pixels as f32) * 100.0);
 
             // 如果所有像素都是 0，说明图标没有正确绘制
             if non_zero_pixels == 0 {
-                eprintln!("[icon_to_png] 警告: 所有像素都是 0，图标可能没有正确绘制");
                 return None;
             }
 
@@ -2910,13 +2550,8 @@ try {
                 writer.write_image_data(&dib_bits).ok()?;
             }
 
-            eprintln!("[icon_to_png] PNG 编码完成: png_data_len={}, base64_len={}", 
-                png_data.len(), 
-                base64::engine::general_purpose::STANDARD.encode(&png_data).len());
-
             // 验证 PNG 数据长度（一个有效的 32x32 RGBA PNG 应该至少有几百字节）
             if png_data.len() < 200 {
-                eprintln!("[icon_to_png] 警告: PNG 数据长度过小 ({} 字节)，可能提取失败", png_data.len());
                 return None;
             }
 
@@ -3237,8 +2872,6 @@ try {
             let icon_path = PathBuf::from(&expanded_path);
             // 如果 IconLocation 指向的文件存在，优先使用它
             if icon_path.exists() {
-                eprintln!("[get_lnk_icon_location] 使用 IconLocation: path={}, index={}", 
-                    icon_path.to_string_lossy(), icon_index);
                 return Some((icon_path, icon_index));
             }
         }
@@ -3248,7 +2881,6 @@ try {
             // 检查是否是 shell:AppsFolder 路径（UWP 应用）
             // 这种路径不需要检查文件是否存在，直接返回即可
             if target_path_str.to_lowercase().starts_with("shell:appsfolder\\") {
-                eprintln!("[get_lnk_icon_location] 使用 TargetPath (shell:AppsFolder): path={}", target_path_str);
                 return Some((PathBuf::from(target_path_str), 0));
             }
             
@@ -3257,8 +2889,6 @@ try {
             let target_path_buf = PathBuf::from(&expanded_path);
             // 只有当 TargetPath 是文件时才使用它（避免使用系统文件夹路径）
             if target_path_buf.exists() && target_path_buf.is_file() {
-                eprintln!("[get_lnk_icon_location] 使用 TargetPath (文件): path={}", 
-                    target_path_buf.to_string_lossy());
                 return Some((target_path_buf, 0));
             }
         }
@@ -3357,30 +2987,19 @@ try {
     // This is the fallback method - kept for compatibility
     // 提取 .url 文件的图标
     pub fn extract_url_icon_base64(url_path: &Path) -> Option<String> {
-        let url_path_str = url_path.to_string_lossy().to_string();
-        
-        eprintln!("[URL图标] 开始提取: url_path={}", url_path_str);
-        
         // 解析 .url 文件
         let (target_path, icon_file, icon_index) = match parse_url_file(url_path) {
             Ok(result) => result,
-            Err(e) => {
-                eprintln!("[URL图标] 解析 .url 文件失败: url_path={}, error={}", url_path_str, e);
+            Err(_) => {
                 return None;
             }
         };
         
-        eprintln!("[URL图标] 解析结果: target_path={:?}, icon_file={:?}, icon_index={}", 
-            target_path, icon_file, icon_index);
-        
         // 优先使用 IconFile（如果存在且有效）
         if let Some(icon_path) = &icon_file {
             if icon_path.exists() {
-                eprintln!("[URL图标] 使用 IconFile: {:?}", icon_path);
                 // 尝试使用 Shell API 提取图标
                 if let Some(result) = extract_icon_png_via_shell(icon_path, 32) {
-                    eprintln!("[URL图标] Shell API 成功 (IconFile): icon_path={:?}, icon_len={}", 
-                        icon_path, result.len());
                     return Some(result);
                 }
                 
@@ -3394,7 +3013,6 @@ try {
                 unsafe {
                     let hr = CoInitializeEx(std::ptr::null_mut(), COINIT_APARTMENTTHREADED as u32);
                     if hr < 0 && hr != 0x00000001 {
-                        eprintln!("[URL图标] CoInitializeEx 失败: hr=0x{:08X}", hr);
                         return None;
                     }
                 }
@@ -3418,8 +3036,6 @@ try {
                         if let Some(png_data) = icon_to_png(large_icons[0]) {
                             DestroyIcon(large_icons[0]);
                             CoUninitialize();
-                            eprintln!("[URL图标] ExtractIconExW 成功 (IconFile): icon_path={:?}, png_len={}", 
-                                icon_path, png_data.len());
                             return Some(png_data);
                         }
                         DestroyIcon(large_icons[0]);
@@ -3431,12 +3047,8 @@ try {
         
         // 回退：从目标路径提取图标
         if target_path.exists() {
-            eprintln!("[URL图标] 使用目标路径提取图标: {:?}", target_path);
-            
             // 尝试使用 Shell API
             if let Some(result) = extract_icon_png_via_shell(&target_path, 32) {
-                eprintln!("[URL图标] Shell API 成功 (目标路径): target_path={:?}, icon_len={}", 
-                    target_path, result.len());
                 return Some(result);
             }
             
@@ -3445,43 +3057,23 @@ try {
                 let ext_lower = ext.to_lowercase();
                 if ext_lower == "exe" {
                     if let Some(result) = extract_icon_base64(&target_path) {
-                        eprintln!("[URL图标] extract_icon_base64 成功: target_path={:?}, icon_len={}", 
-                            target_path, result.len());
                         return Some(result);
                     }
                 } else if ext_lower == "lnk" {
                     if let Some(result) = extract_lnk_icon_base64(&target_path) {
-                        eprintln!("[URL图标] extract_lnk_icon_base64 成功: target_path={:?}, icon_len={}", 
-                            target_path, result.len());
                         return Some(result);
                     }
                 }
             }
         }
-        
-        eprintln!("[URL图标] 所有方法都失败: url_path={}", url_path_str);
         None
     }
 
     pub fn extract_lnk_icon_base64(lnk_path: &Path) -> Option<String> {
-        let lnk_path_str = lnk_path.to_string_lossy().to_string();
-        
-        // #region agent log
-        eprintln!("[LNK图标] 开始提取: lnk_path={}", lnk_path_str);
-        // #endregion
-        
         // 首先尝试 Native API 方法
         if let Some(result) = extract_lnk_icon_base64_native(lnk_path) {
-            // #region agent log
-            eprintln!("[LNK图标] Native API 成功: lnk_path={}, icon_len={}", 
-                lnk_path_str, result.len());
-            // #endregion
             return Some(result);
         }
-        
-        // #region agent log
-        eprintln!("[LNK图标] Native API 失败，尝试 PowerShell: lnk_path={}", lnk_path_str);
-        // #endregion
 
         // 如果 Native API 失败，回退到 PowerShell 方法
         // Convert path to UTF-16 bytes for PowerShell parameter
@@ -3904,10 +3496,6 @@ public class IconExtractor {
             let name_lower_start = std::time::Instant::now();
             let name_lower = app.name.to_lowercase();
             name_lower_count += 1;
-            let name_lower_duration = name_lower_start.elapsed();
-            if name_lower_duration.as_micros() > 100 {
-                println!("[搜索性能] 应用 {} 的 name.to_lowercase() 耗时: {:?}", idx, name_lower_duration);
-            }
             
             if name_lower == query_lower {
                 score += 1000;
@@ -4085,11 +3673,9 @@ public class IconExtractor {
                             app.path, target_info.path
                         ));
                     }
-                    eprintln!("[DEBUG] Launching shortcut: {} -> {}", app.path, target_info.path);
                 }
                 Err(e) => {
                     parse_error = Some(e.clone());
-                    eprintln!("[WARN] Failed to parse shortcut {}: {}. Attempting direct launch.", app.path, e);
                     // 继续尝试直接启动
                 }
             }
