@@ -1,5 +1,3 @@
-import React from "react";
-
 interface RemarkEditModalProps {
   isOpen: boolean;
   editingRemarkUrl: string | null;

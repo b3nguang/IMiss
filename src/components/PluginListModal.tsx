@@ -1,11 +1,9 @@
-import React from "react";
 import { AppCenterContent } from "./AppCenterContent";
-import type { PluginContext } from "../types";
 
 interface PluginListModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onPluginClick: (pluginId: string) => void;
+  onPluginClick: (pluginId: string) => Promise<void>;
 }
 
 export function PluginListModal({

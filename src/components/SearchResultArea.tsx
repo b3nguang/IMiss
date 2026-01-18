@@ -3,11 +3,11 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ResultList } from "./ResultList";
 import type { 
-  SearchResult, 
   AppInfo, 
-  ResultStyle, 
   EverythingResult 
 } from "../types";
+import type { SearchResult } from "../utils/resultUtils";
+import type { ResultStyle } from "../utils/themeConfig";
 
 interface SearchResultAreaProps {
   showAiAnswer: boolean;
@@ -36,9 +36,9 @@ interface SearchResultAreaProps {
   openHistory: Record<string, number>;
   urlRemarks: Record<string, string>;
   getPluginIcon: (id: string, className: string) => JSX.Element;
-  handleLaunch: (result: SearchResult) => void;
+  handleLaunch: (result: SearchResult) => Promise<void>;
   handleContextMenu: (e: React.MouseEvent, result: SearchResult) => void;
-  handleSaveImageToDownloads: (path: string) => void;
+  handleSaveImageToDownloads: (path: string) => Promise<void>;
   horizontalScrollContainerRef: React.RefObject<HTMLDivElement>;
   isHorizontalResultsStable: boolean;
 }
