@@ -51,7 +51,7 @@ interface Settings {
     base_url: string;
   };
   startup_enabled?: boolean;
-  result_style?: "compact" | "soft" | "skeuomorphic";
+  result_style?: "compact" | "soft" | "skeuomorphic" | "m3";
   close_on_blur?: boolean;
   search_engines?: Array<{
     prefix: string;
@@ -668,7 +668,7 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
       setSettings({
         ...data,
         startup_enabled: startupEnabled,
-        result_style: (data.result_style as Settings["result_style"]) || (localStorage.getItem("result-style") as Settings["result_style"]) || "skeuomorphic",
+        result_style: (data.result_style as Settings["result_style"]) || (localStorage.getItem("result-style") as Settings["result_style"]) || "m3",
         close_on_blur: data.close_on_blur ?? true,
       });
     } catch (error) {
@@ -1530,17 +1530,17 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
         return (
           <div className="flex-1 flex overflow-hidden">
             {/* 设置子导航 */}
-            <div className="w-48 border-r border-gray-200 bg-white flex-shrink-0 flex flex-col">
+            <div className="w-48 border-r border-[var(--md-sys-color-outline-variant)]/20 bg-[var(--md-sys-color-surface)] flex-shrink-0 flex flex-col">
               <nav className="p-4 flex-1 overflow-y-auto">
                 <ul className="space-y-1">
                   {settingsMenuItems.map((item) => (
                     <li key={item.id}>
                       <button
                         onClick={() => setActiveSettingsPage(item.id)}
-                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-colors ${
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-full text-left transition-colors ${
                           activeSettingsPage === item.id
-                            ? "bg-blue-50 text-blue-700 font-medium"
-                            : "text-gray-700 hover:bg-gray-50"
+                            ? "bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)] font-medium"
+                            : "text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-high)]"
                         }`}
                       >
                         <span className="text-lg">{item.icon}</span>
@@ -1553,7 +1553,7 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
             </div>
 
             {/* 设置内容区域 */}
-            <div className="flex-1 overflow-y-auto bg-gray-50">
+            <div className="flex-1 overflow-y-auto bg-[var(--md-sys-color-surface)]">
               <div className="p-6 max-w-4xl">
                 {saveMessage && (
                   <div
@@ -1602,7 +1602,7 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
         );
       case "about":
         return (
-          <div className="flex-1 overflow-y-auto bg-gray-50">
+          <div className="flex-1 overflow-y-auto bg-[var(--md-sys-color-surface)]">
             <div className="p-6 max-w-4xl mx-auto">
               <AboutSettingsPage />
             </div>
@@ -1617,7 +1617,7 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
     <>
       <div className="flex-1 flex overflow-hidden">
         {/* Sidebar */}
-        <div className="w-48 border-r border-gray-200 bg-white flex-shrink-0 flex flex-col">
+        <div className="w-48 border-r border-[var(--md-sys-color-outline-variant)]/20 bg-[var(--md-sys-color-surface)] flex-shrink-0 flex flex-col">
           <nav className="flex-1 p-2">
             {menuItems.map((item) => (
               <button
@@ -1626,13 +1626,13 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
                   setActiveCategory(item.id);
                   setSearchQuery(""); // 切换分类时清空搜索
                 }}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors mb-1 ${
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-full transition-colors mb-1 ${
                   activeCategory === item.id
-                    ? "bg-green-50 text-green-700 font-medium"
-                    : "text-gray-700 hover:bg-gray-50"
+                    ? "bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)] font-medium"
+                    : "text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-high)]"
                 }`}
               >
-                <span className={activeCategory === item.id ? "text-green-600" : "text-gray-500"}>
+                <span className={activeCategory === item.id ? "text-[var(--md-sys-color-on-secondary-container)]" : "text-[var(--md-sys-color-on-surface-variant)]"}>
                   {item.icon}
                 </span>
                 <span>{item.name}</span>
@@ -1645,7 +1645,7 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Search Bar - 仅在插件分类显示 */}
           {activeCategory === "plugins" && (
-            <div className="p-5 border-b border-gray-200 bg-gradient-to-r from-white to-gray-50 flex-shrink-0">
+            <div className="p-5 border-b border-[var(--md-sys-color-outline-variant)]/20 bg-[var(--md-sys-color-surface-container-low)] flex-shrink-0">
               <div className="relative max-w-2xl mx-auto">
                 <div className="relative">
                   <input
@@ -1653,10 +1653,10 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="搜索插件..."
-                    className="w-full px-5 py-3 pl-12 pr-4 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-400 focus:border-green-400 bg-white shadow-sm hover:shadow-md transition-all duration-200 text-gray-900 placeholder-gray-400"
+                    className="w-full px-5 py-3 pl-12 pr-4 border border-[var(--md-sys-color-outline-variant)]/40 rounded-full focus:outline-none focus:ring-2 focus:ring-[var(--md-sys-color-primary)]/40 focus:border-[var(--md-sys-color-primary)] bg-[var(--md-sys-color-surface-container-lowest)] transition-all duration-200 text-[var(--md-sys-color-on-surface)] placeholder-[var(--md-sys-color-outline)]"
                   />
                   <svg
-                    className="absolute left-4 top-3.5 w-5 h-5 text-gray-400 pointer-events-none"
+                    className="absolute left-4 top-3.5 w-5 h-5 text-[var(--md-sys-color-on-surface-variant)] pointer-events-none"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -1671,7 +1671,7 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
                   {searchQuery && (
                     <button
                       onClick={() => setSearchQuery("")}
-                      className="absolute right-3 top-3.5 w-5 h-5 text-gray-400 hover:text-gray-600 transition-colors"
+                      className="absolute right-3 top-3.5 w-5 h-5 text-[var(--md-sys-color-outline)] hover:text-[var(--md-sys-color-on-surface)] transition-colors"
                     >
                       <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -1687,7 +1687,7 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
           {activeCategory === "settings" || activeCategory === "about" ? (
             renderContent()
           ) : (
-            <div className="flex-1 overflow-y-auto p-4">
+            <div className="flex-1 overflow-y-auto p-4 bg-[var(--md-sys-color-surface)]">
               <div className="max-w-4xl mx-auto">{renderContent()}</div>
             </div>
           )}

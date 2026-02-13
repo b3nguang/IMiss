@@ -541,11 +541,11 @@ export const tauriApi = {
 
 
   // Settings APIs
-  async getSettings(): Promise<{ ollama: { model: string; base_url: string }; startup_enabled?: boolean; result_style?: "compact" | "soft" | "skeuomorphic"; close_on_blur?: boolean; auto_check_update?: boolean; clipboard_max_items?: number; translation_tab_order?: string[]; search_engines?: SearchEngineConfig[] }> {
+  async getSettings(): Promise<{ ollama: { model: string; base_url: string }; startup_enabled?: boolean; result_style?: "compact" | "soft" | "skeuomorphic" | "m3"; close_on_blur?: boolean; auto_check_update?: boolean; clipboard_max_items?: number; translation_tab_order?: string[]; search_engines?: SearchEngineConfig[] }> {
     return invoke("get_settings");
   },
 
-  async saveSettings(settings: { ollama: { model: string; base_url: string }; startup_enabled?: boolean; result_style?: "compact" | "soft" | "skeuomorphic"; close_on_blur?: boolean; clipboard_max_items?: number; translation_tab_order?: string[]; search_engines?: SearchEngineConfig[] }): Promise<void> {
+  async saveSettings(settings: { ollama: { model: string; base_url: string }; startup_enabled?: boolean; result_style?: "compact" | "soft" | "skeuomorphic" | "m3"; close_on_blur?: boolean; clipboard_max_items?: number; translation_tab_order?: string[]; search_engines?: SearchEngineConfig[] }): Promise<void> {
     return invoke("save_settings", { settings });
   },
 

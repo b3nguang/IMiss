@@ -3,7 +3,7 @@
  * 从 LauncherWindow.tsx 提取的主题和布局配置
  */
 
-export type ResultStyle = "compact" | "soft" | "skeuomorphic";
+export type ResultStyle = "compact" | "soft" | "skeuomorphic" | "m3";
 
 export type ThemeConfig = {
   card: (selected: boolean) => string;
@@ -138,6 +138,46 @@ export function getThemeConfig(style: ResultStyle): ThemeConfig {
     },
   };
 
+  const m3: ThemeConfig = {
+    card: (selected: boolean) =>
+      `group relative mx-2 my-1 px-4 py-3 cursor-pointer transition-all duration-200 m3-state-layer ${
+        selected
+          ? "rounded-xl bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)]"
+          : "rounded-xl text-[var(--md-sys-color-on-surface)] hover:bg-[var(--md-sys-color-surface-container-high)]"
+      }`,
+    indicator: (selected: boolean) =>
+      `absolute left-0 top-2 bottom-2 w-[3px] rounded-full transition-all duration-200 ${
+        selected ? "bg-[var(--md-sys-color-primary)] opacity-100" : "opacity-0"
+      }`,
+    indexBadge: (selected: boolean) =>
+      `text-[11px] font-medium flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center transition-colors ${
+        selected
+          ? "bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)]"
+          : "bg-[var(--md-sys-color-surface-container-high)] text-[var(--md-sys-color-on-surface-variant)]"
+      }`,
+    iconWrap: (_selected: boolean) =>
+      "w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden transition-colors duration-150",
+    iconColor: (selected: boolean, defaultColor: string) =>
+      selected ? "text-[var(--md-sys-color-on-secondary-container)]" : defaultColor,
+    title: (selected: boolean) =>
+      selected ? "text-[var(--md-sys-color-on-secondary-container)]" : "text-[var(--md-sys-color-on-surface)]",
+    aiText: (selected: boolean) =>
+      selected ? "text-[var(--md-sys-color-on-secondary-container)]" : "text-[var(--md-sys-color-on-surface-variant)]",
+    pathText: (selected: boolean) =>
+      selected ? "text-[var(--md-sys-color-on-secondary-container)]/80" : "text-[var(--md-sys-color-on-surface-variant)]",
+    metaText: (selected: boolean) =>
+      selected ? "text-[var(--md-sys-color-on-secondary-container)]/70" : "text-[var(--md-sys-color-outline)]",
+    descText: (selected: boolean) =>
+      selected ? "text-[var(--md-sys-color-on-secondary-container)]" : "text-[var(--md-sys-color-on-surface-variant)]",
+    usageText: (selected: boolean) =>
+      selected ? "text-[var(--md-sys-color-on-secondary-container)]/70" : "text-[var(--md-sys-color-outline)]",
+    tag: (_type: string, selected: boolean) =>
+      selected
+        ? "bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)] border border-transparent rounded-full px-2 py-0.5 text-[11px]"
+        : "bg-[var(--md-sys-color-surface-container-high)] text-[var(--md-sys-color-on-surface-variant)] border border-transparent rounded-full px-2 py-0.5 text-[11px]",
+  };
+
+  if (style === "m3") return m3;
   if (style === "soft") return soft;
   if (style === "skeuomorphic") return skeuo;
   return compact;
@@ -147,6 +187,17 @@ export function getThemeConfig(style: ResultStyle): ThemeConfig {
  * 获取布局配置
  */
 export function getLayoutConfig(style: ResultStyle): LayoutConfig {
+  if (style === "m3") {
+    return {
+      wrapperBg: "var(--md-sys-color-surface)",
+      container: "flex flex-col rounded-[var(--md-sys-shape-corner-extra-large)] m3-elevation-3 bg-[var(--md-sys-color-surface-container-lowest)] border border-[var(--md-sys-color-outline-variant)]/30",
+      header: "px-5 py-3.5 border-b border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container-low)] flex-shrink-0 rounded-t-[var(--md-sys-shape-corner-extra-large)]",
+      searchIcon: "w-5 h-5 text-[var(--md-sys-color-on-surface-variant)]",
+      dragHandleIcon: "w-4 h-4 text-[var(--md-sys-color-outline)] opacity-50 hover:opacity-100 transition-opacity flex-shrink-0",
+      input: "flex-1 text-base border-none outline-none bg-transparent placeholder-[var(--md-sys-color-outline)] text-[var(--md-sys-color-on-surface)]",
+      pluginIcon: (hovering: boolean) => `w-5 h-5 transition-all ${hovering ? "text-[var(--md-sys-color-primary)] opacity-100" : "text-[var(--md-sys-color-on-surface-variant)] opacity-70"}`,
+    };
+  }
   if (style === "skeuomorphic") {
     return {
       wrapperBg: "linear-gradient(145deg, #eef2f8 0%, #e2e8f3 50%, #f6f8fc 100%)",

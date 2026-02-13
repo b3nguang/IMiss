@@ -2,6 +2,140 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ===== Material 3 Design Tokens ===== */
+:root {
+  /* M3 Primary */
+  --md-sys-color-primary: #1a6b52;
+  --md-sys-color-on-primary: #ffffff;
+  --md-sys-color-primary-container: #a4f2d1;
+  --md-sys-color-on-primary-container: #002117;
+
+  /* M3 Secondary */
+  --md-sys-color-secondary: #4d6357;
+  --md-sys-color-on-secondary: #ffffff;
+  --md-sys-color-secondary-container: #d0e8d9;
+  --md-sys-color-on-secondary-container: #0b1f16;
+
+  /* M3 Tertiary */
+  --md-sys-color-tertiary: #3d6373;
+  --md-sys-color-on-tertiary: #ffffff;
+  --md-sys-color-tertiary-container: #c0e8fb;
+  --md-sys-color-on-tertiary-container: #001f29;
+
+  /* M3 Error */
+  --md-sys-color-error: #ba1a1a;
+  --md-sys-color-on-error: #ffffff;
+  --md-sys-color-error-container: #ffdad6;
+  --md-sys-color-on-error-container: #410002;
+
+  /* M3 Surface / Background */
+  --md-sys-color-surface: #fbfdf9;
+  --md-sys-color-on-surface: #191c1a;
+  --md-sys-color-surface-variant: #dce5dd;
+  --md-sys-color-on-surface-variant: #404943;
+  --md-sys-color-surface-container-lowest: #ffffff;
+  --md-sys-color-surface-container-low: #f1f5f0;
+  --md-sys-color-surface-container: #ecf0eb;
+  --md-sys-color-surface-container-high: #e6eae5;
+  --md-sys-color-surface-container-highest: #e0e4df;
+
+  /* M3 Outline */
+  --md-sys-color-outline: #707972;
+  --md-sys-color-outline-variant: #c0c9c1;
+
+  /* M3 Inverse */
+  --md-sys-color-inverse-surface: #2e312e;
+  --md-sys-color-inverse-on-surface: #eff1ed;
+  --md-sys-color-inverse-primary: #88d6b6;
+
+  /* M3 Elevation (tonal surface tint overlays) */
+  --md-sys-elevation-1: 0 1px 3px 1px rgba(0,0,0,0.08), 0 1px 2px 0 rgba(0,0,0,0.12);
+  --md-sys-elevation-2: 0 2px 6px 2px rgba(0,0,0,0.08), 0 1px 2px 0 rgba(0,0,0,0.12);
+  --md-sys-elevation-3: 0 4px 8px 3px rgba(0,0,0,0.08), 0 1px 3px 0 rgba(0,0,0,0.12);
+  --md-sys-elevation-4: 0 6px 10px 4px rgba(0,0,0,0.08), 0 2px 3px 0 rgba(0,0,0,0.12);
+  --md-sys-elevation-5: 0 8px 12px 6px rgba(0,0,0,0.08), 0 4px 4px 0 rgba(0,0,0,0.12);
+
+  /* M3 Shape */
+  --md-sys-shape-corner-none: 0px;
+  --md-sys-shape-corner-extra-small: 4px;
+  --md-sys-shape-corner-small: 8px;
+  --md-sys-shape-corner-medium: 12px;
+  --md-sys-shape-corner-large: 16px;
+  --md-sys-shape-corner-extra-large: 28px;
+  --md-sys-shape-corner-full: 9999px;
+
+  /* M3 State layer opacities */
+  --md-sys-state-hover-opacity: 0.08;
+  --md-sys-state-focus-opacity: 0.12;
+  --md-sys-state-pressed-opacity: 0.12;
+  --md-sys-state-dragged-opacity: 0.16;
+}
+
+/* M3 utility classes */
+.m3-surface {
+  background-color: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+}
+
+.m3-surface-container {
+  background-color: var(--md-sys-color-surface-container);
+  color: var(--md-sys-color-on-surface);
+}
+
+.m3-surface-container-low {
+  background-color: var(--md-sys-color-surface-container-low);
+  color: var(--md-sys-color-on-surface);
+}
+
+.m3-surface-container-high {
+  background-color: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface);
+}
+
+.m3-elevation-1 { box-shadow: var(--md-sys-elevation-1); }
+.m3-elevation-2 { box-shadow: var(--md-sys-elevation-2); }
+.m3-elevation-3 { box-shadow: var(--md-sys-elevation-3); }
+
+/* M3 state layer hover effect */
+.m3-state-layer {
+  position: relative;
+}
+.m3-state-layer::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-color: currentColor;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+.m3-state-layer:hover::before {
+  opacity: var(--md-sys-state-hover-opacity);
+}
+.m3-state-layer:active::before {
+  opacity: var(--md-sys-state-pressed-opacity);
+}
+
+/* M3 scrollbar styling */
+div.results-list-scroll.m3-scroll::-webkit-scrollbar {
+  width: 8px !important;
+}
+div.results-list-scroll.m3-scroll::-webkit-scrollbar-track {
+  background: var(--md-sys-color-surface-container-low) !important;
+  border-left: none !important;
+}
+div.results-list-scroll.m3-scroll::-webkit-scrollbar-thumb {
+  background-color: var(--md-sys-color-outline-variant) !important;
+  border-radius: var(--md-sys-shape-corner-full) !important;
+  border: 2px solid var(--md-sys-color-surface-container-low) !important;
+  background-clip: content-box !important;
+  min-height: 32px !important;
+}
+div.results-list-scroll.m3-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: var(--md-sys-color-outline) !important;
+}
+
 html, body {
   margin: 0;
   padding: 0;

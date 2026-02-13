@@ -6,6 +6,7 @@
 import React from "react";
 import type { UpdateCheckResult } from "../types";
 import { tauriApi } from "../api/tauri";
+import type { ResultStyle } from "../utils/themeConfig";
 
 export interface LauncherStatusBarProps {
   resultsCount: number;
@@ -21,7 +22,10 @@ export interface LauncherStatusBarProps {
   onDownloadEverything: () => Promise<void>;
   onCheckAgain: () => Promise<void>;
   downloadButtonRef: React.RefObject<HTMLButtonElement>;
+  resultStyle?: ResultStyle;
 }
+
+const isM3 = (style?: ResultStyle) => style === "m3";
 
 export const LauncherStatusBar = React.memo<LauncherStatusBarProps>(({
   resultsCount,
@@ -37,6 +41,7 @@ export const LauncherStatusBar = React.memo<LauncherStatusBarProps>(({
   onDownloadEverything,
   onCheckAgain,
   downloadButtonRef,
+  resultStyle,
 }) => {
   const handleUpdateClick = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -58,7 +63,10 @@ export const LauncherStatusBar = React.memo<LauncherStatusBarProps>(({
 
   return (
     <div 
-      className="px-6 py-2 border-t border-gray-100 text-xs text-gray-400 flex justify-between items-center bg-gray-50/50 flex-shrink-0 gap-2 min-w-0"
+      className={isM3(resultStyle)
+        ? "px-5 py-2 border-t border-[var(--md-sys-color-outline-variant)]/20 text-xs text-[var(--md-sys-color-outline)] flex justify-between items-center bg-[var(--md-sys-color-surface-container-low)] flex-shrink-0 gap-2 min-w-0 rounded-b-[var(--md-sys-shape-corner-extra-large)]"
+        : "px-6 py-2 border-t border-gray-100 text-xs text-gray-400 flex justify-between items-center bg-gray-50/50 flex-shrink-0 gap-2 min-w-0"
+      }
       onMouseDown={(e) => {
         // 阻止 footer 区域的点击事件被 header 的拖动处理器捕获
         const target = e.target as HTMLElement;
@@ -78,8 +86,14 @@ export const LauncherStatusBar = React.memo<LauncherStatusBarProps>(({
             className="flex items-center gap-1.5 cursor-help whitespace-nowrap" 
             title={everythingPath ? `Everything 路径: ${everythingPath}` : 'Everything 未安装或未在 PATH 中'}
           >
-            <div className={`w-2 h-2 rounded-full flex-shrink-0 ${isEverythingAvailable ? 'bg-emerald-500' : 'bg-gray-300'}`}></div>
-            <span className={`text-xs ${isEverythingAvailable ? 'text-emerald-600' : 'text-gray-500'}`}>
+            <div className={`w-2 h-2 rounded-full flex-shrink-0 ${isEverythingAvailable
+              ? (isM3(resultStyle) ? 'bg-[var(--md-sys-color-primary)]' : 'bg-emerald-500')
+              : (isM3(resultStyle) ? 'bg-[var(--md-sys-color-outline-variant)]' : 'bg-gray-300')
+            }`}></div>
+            <span className={`text-xs ${isEverythingAvailable
+              ? (isM3(resultStyle) ? 'text-[var(--md-sys-color-primary)]' : 'text-emerald-600')
+              : (isM3(resultStyle) ? 'text-[var(--md-sys-color-outline)]' : 'text-gray-500')
+            }`}>
               {isEverythingAvailable ? 'Everything 已启用' : (
                 everythingError?.startsWith("NOT_INSTALLED") 
                   ? 'Everything 未安装' 
@@ -89,7 +103,7 @@ export const LauncherStatusBar = React.memo<LauncherStatusBarProps>(({
               )}
             </span>
             {everythingError && !isEverythingAvailable && !everythingError.startsWith("NOT_INSTALLED") && !everythingError.startsWith("SERVICE_NOT_RUNNING") && (
-              <span className="text-xs text-red-500 ml-2 whitespace-nowrap" title={everythingError}>
+              <span className={isM3(resultStyle) ? "text-xs text-[var(--md-sys-color-error)] ml-2 whitespace-nowrap" : "text-xs text-red-500 ml-2 whitespace-nowrap"} title={everythingError}>
                 ({everythingError.split(':')[0]})
               </span>
             )}
@@ -99,7 +113,10 @@ export const LauncherStatusBar = React.memo<LauncherStatusBarProps>(({
               {everythingError && everythingError.startsWith("SERVICE_NOT_RUNNING") && (
                 <button
                   onClick={onStartEverything}
-                  className="px-2 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600 transition-colors whitespace-nowrap"
+                  className={isM3(resultStyle)
+                    ? "px-2.5 py-1 text-xs bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] rounded-full hover:opacity-90 transition-opacity whitespace-nowrap"
+                    : "px-2 py-1 text-xs bg-green-500 text-white rounded hover:bg-green-600 transition-colors whitespace-nowrap"
+                  }
                   title="启动 Everything"
                 >
                   启动
@@ -119,11 +136,18 @@ export const LauncherStatusBar = React.memo<LauncherStatusBarProps>(({
                     }
                   }}
                   disabled={isDownloadingEverything}
-                  className={`px-2 py-1 text-xs rounded transition-colors whitespace-nowrap ${
-                    isDownloadingEverything
-                      ? 'bg-gray-400 text-white cursor-not-allowed'
-                      : 'bg-blue-500 text-white hover:bg-blue-600'
-                  }`}
+                  className={isM3(resultStyle)
+                    ? `px-2.5 py-1 text-xs rounded-full transition-opacity whitespace-nowrap ${
+                        isDownloadingEverything
+                          ? 'bg-[var(--md-sys-color-outline-variant)] text-[var(--md-sys-color-on-surface)] cursor-not-allowed'
+                          : 'bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] hover:opacity-90'
+                      }`
+                    : `px-2 py-1 text-xs rounded transition-colors whitespace-nowrap ${
+                        isDownloadingEverything
+                          ? 'bg-gray-400 text-white cursor-not-allowed'
+                          : 'bg-blue-500 text-white hover:bg-blue-600'
+                      }`
+                  }
                   style={{ pointerEvents: 'auto', zIndex: 1000, position: 'relative' }}
                   title="下载并安装 Everything"
                   data-testid="download-everything-button"
@@ -141,7 +165,10 @@ export const LauncherStatusBar = React.memo<LauncherStatusBarProps>(({
                     console.error("[Everything刷新] handleCheckAgain 抛出错误:", error);
                   });
                 }}
-                className="px-2 py-1 text-xs bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors whitespace-nowrap"
+                className={isM3(resultStyle)
+                  ? "px-2.5 py-1 text-xs bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-on-surface)] rounded-full hover:opacity-80 transition-opacity whitespace-nowrap"
+                  : "px-2 py-1 text-xs bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors whitespace-nowrap"
+                }
                 title="重新检测 Everything"
               >
                 刷新
@@ -156,8 +183,8 @@ export const LauncherStatusBar = React.memo<LauncherStatusBarProps>(({
               title={`发现新版本 ${updateInfo.latest_version}，点击查看详情`}
               onClick={handleUpdateClick}
             >
-              <div className="w-2 h-2 rounded-full flex-shrink-0 bg-orange-500 animate-pulse"></div>
-              <span className="text-xs text-orange-600 font-medium">
+              <div className={isM3(resultStyle) ? "w-2 h-2 rounded-full flex-shrink-0 bg-[var(--md-sys-color-tertiary)] animate-pulse" : "w-2 h-2 rounded-full flex-shrink-0 bg-orange-500 animate-pulse"}></div>
+              <span className={isM3(resultStyle) ? "text-xs text-[var(--md-sys-color-tertiary)] font-medium" : "text-xs text-orange-600 font-medium"}>
                 发现新版本 {updateInfo.latest_version}
               </span>
             </div>

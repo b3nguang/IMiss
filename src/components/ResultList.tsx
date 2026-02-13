@@ -70,12 +70,16 @@ const HorizontalResultItem = React.memo<{
       onContextMenu={(e) => onContextMenu(e, result)}
       className={`flex flex-col items-center justify-center gap-1.5 p-2 rounded-xl cursor-pointer transition-all duration-200 relative ${
         isSelected 
-          ? resultStyle === "soft"
+          ? resultStyle === "m3"
+            ? "bg-[var(--md-sys-color-secondary-container)] border-2 border-[var(--md-sys-color-primary)] scale-[1.2]"
+            : resultStyle === "soft"
             ? "bg-blue-50 border-2 border-blue-400 shadow-md shadow-blue-200/50 scale-[1.2]"
             : resultStyle === "skeuomorphic"
             ? "bg-gradient-to-br from-[#f0f5fb] to-[#e5edf9] border-2 border-[#a8c0e0] shadow-[0_4px_12px_rgba(20,32,50,0.12)] scale-[1.2]"
             : "bg-indigo-50 border-2 border-indigo-400 shadow-md shadow-indigo-200/50 scale-[1.2]"
-          : "bg-white hover:bg-gray-50 border border-gray-200 hover:border-gray-300 hover:shadow-md"
+          : resultStyle === "m3"
+            ? "bg-[var(--md-sys-color-surface-container-low)] hover:bg-[var(--md-sys-color-surface-container-high)] border border-[var(--md-sys-color-outline-variant)]/50 hover:border-[var(--md-sys-color-outline-variant)]"
+            : "bg-white hover:bg-gray-50 border border-gray-200 hover:border-gray-300 hover:shadow-md"
       } ${isLaunching ? 'rocket-launching' : ''}`}
       style={{
         '--target-opacity': !isStable ? 0.6 : 1,
@@ -96,7 +100,9 @@ const HorizontalResultItem = React.memo<{
       {isSelected && (
         <div 
           className={`absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full ${
-            resultStyle === "soft"
+            resultStyle === "m3"
+              ? "bg-[var(--md-sys-color-primary)]"
+              : resultStyle === "soft"
               ? "bg-blue-500"
               : resultStyle === "skeuomorphic"
               ? "bg-[#6b8fc4]"
@@ -119,12 +125,16 @@ const HorizontalResultItem = React.memo<{
       <div 
         className={`text-xs text-center leading-tight ${
           isSelected 
-            ? resultStyle === "soft"
+            ? resultStyle === "m3"
+              ? "text-[var(--md-sys-color-on-secondary-container)] font-medium"
+              : resultStyle === "soft"
               ? "text-blue-700 font-medium"
               : resultStyle === "skeuomorphic"
               ? "text-[#2a3f5f] font-medium"
               : "text-indigo-700 font-medium"
-            : "text-gray-700"
+            : resultStyle === "m3"
+              ? "text-[var(--md-sys-color-on-surface)]"
+              : "text-gray-700"
         }`}
         style={{ 
           display: '-webkit-box',

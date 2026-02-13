@@ -35,13 +35,13 @@ export function PluginListWindow() {
   useEscapeKey(handleClose);
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-gray-50">
+    <div className="h-screen w-screen flex flex-col bg-[var(--md-sys-color-surface)]">
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-white flex-shrink-0">
-        <h2 className="text-lg font-semibold text-gray-800">应用中心</h2>
+      <div className="flex items-center justify-between px-5 py-3.5 border-b border-[var(--md-sys-color-outline-variant)]/20 bg-[var(--md-sys-color-surface-container-low)] flex-shrink-0">
+        <h2 className="text-lg font-semibold text-[var(--md-sys-color-on-surface)]">应用中心</h2>
         <button
           onClick={handleClose}
-          className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded transition-colors"
+          className="px-3 py-1.5 text-sm text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-high)] rounded-full transition-colors"
         >
           关闭
         </button>

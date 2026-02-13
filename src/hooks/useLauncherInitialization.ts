@@ -101,11 +101,11 @@ export function useLauncherInitialization(
         const styleFromSettings = (settings.result_style as ResultStyle) || null;
         const styleFromCache = localStorage.getItem("result-style");
         const fallback =
-          styleFromSettings && ["compact", "soft", "skeuomorphic"].includes(styleFromSettings)
+          styleFromSettings && ["compact", "soft", "skeuomorphic", "m3"].includes(styleFromSettings)
             ? styleFromSettings
-            : styleFromCache && ["compact", "soft", "skeuomorphic"].includes(styleFromCache)
+            : styleFromCache && ["compact", "soft", "skeuomorphic", "m3"].includes(styleFromCache)
             ? (styleFromCache as ResultStyle)
-            : "skeuomorphic";
+            : "m3";
         setResultStyle(fallback);
         localStorage.setItem("result-style", fallback);
         const closeOnBlurSetting = settings.close_on_blur ?? true;

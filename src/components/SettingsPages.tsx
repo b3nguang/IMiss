@@ -143,7 +143,7 @@ export function OllamaSettingsPage({
 interface SystemSettingsProps {
   settings: {
     startup_enabled?: boolean;
-    result_style?: "compact" | "soft" | "skeuomorphic";
+    result_style?: "compact" | "soft" | "skeuomorphic" | "m3";
     close_on_blur?: boolean;
     auto_check_update?: boolean;
     clipboard_max_items?: number;
@@ -220,7 +220,7 @@ export function SystemSettingsPage({
                 搜索结果风格
               </label>
               <p className="text-xs text-gray-500">
-                在线性（紧凑）、渐变卡片与拟物风之间切换
+                在 Material 3、线性（紧凑）、渐变卡片与拟物风之间切换
               </p>
             </div>
             <select
@@ -228,11 +228,12 @@ export function SystemSettingsPage({
               onChange={(e) =>
                 onSettingsChange({
                   ...settings,
-                  result_style: e.target.value as "compact" | "soft" | "skeuomorphic",
+                  result_style: e.target.value as "compact" | "soft" | "skeuomorphic" | "m3",
                 })
               }
               className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
             >
+              <option value="m3">Material 3</option>
               <option value="compact">紧凑线性</option>
               <option value="soft">渐变卡片</option>
               <option value="skeuomorphic">拟物风</option>

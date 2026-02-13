@@ -117,10 +117,10 @@ export function LauncherWindow({ updateInfo }: LauncherWindowProps) {
   const [pastedImageDataUrl, setPastedImageDataUrl] = useState<string | null>(null); // 粘贴的图片 base64 data URL
   const [resultStyle, setResultStyle] = useState<ResultStyle>(() => {
     const cached = localStorage.getItem("result-style");
-    if (cached === "soft" || cached === "skeuomorphic" || cached === "compact") {
+    if (cached === "soft" || cached === "skeuomorphic" || cached === "compact" || cached === "m3") {
       return cached;
     }
-    return "skeuomorphic";
+    return "m3";
   });
   const [closeOnBlur, setCloseOnBlur] = useState(true);
   const [windowWidth, setWindowWidth] = useState<number>(() => {
@@ -1794,6 +1794,7 @@ export function LauncherWindow({ updateInfo }: LauncherWindowProps) {
             onDownloadEverything={handleDownloadEverything}
             onCheckAgain={handleCheckAgain}
             downloadButtonRef={downloadButtonRef}
+            resultStyle={resultStyle}
           />
         </div>
         {/* Resize Handle */}
