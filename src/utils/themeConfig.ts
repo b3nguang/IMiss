@@ -189,8 +189,8 @@ export function getThemeConfig(style: ResultStyle): ThemeConfig {
 export function getLayoutConfig(style: ResultStyle): LayoutConfig {
   if (style === "m3") {
     return {
-      wrapperBg: "var(--md-sys-color-surface)",
-      container: "flex flex-col rounded-[var(--md-sys-shape-corner-extra-large)] m3-elevation-3 bg-[var(--md-sys-color-surface-container-lowest)] border border-[var(--md-sys-color-outline-variant)]/30",
+      wrapperBg: "transparent",
+      container: "flex flex-col overflow-hidden rounded-[var(--md-sys-shape-corner-extra-large)] m3-elevation-3 bg-[var(--md-sys-color-surface-container-lowest)] border border-[var(--md-sys-color-outline-variant)]/30",
       header: "px-5 py-3.5 border-b border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container-low)] flex-shrink-0 rounded-t-[var(--md-sys-shape-corner-extra-large)]",
       searchIcon: "w-5 h-5 text-[var(--md-sys-color-on-surface-variant)]",
       dragHandleIcon: "w-4 h-4 text-[var(--md-sys-color-outline)] opacity-50 hover:opacity-100 transition-opacity flex-shrink-0",
