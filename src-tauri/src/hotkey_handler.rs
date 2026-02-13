@@ -22,19 +22,10 @@ pub mod windows {
     static LOG_FILE_STATE: std::sync::OnceLock<Arc<Mutex<LogFileState>>> = std::sync::OnceLock::new();
     
     fn get_log_dir() -> PathBuf {
-        // 使用与 everything_search 相同的日志目录
-        #[cfg(target_os = "windows")]
-        {
-            if let Ok(appdata) = std::env::var("APPDATA") {
-                PathBuf::from(appdata).join("re-fast").join("logs")
-            } else {
-                std::env::temp_dir().join("re-fast-logs")
-            }
-        }
-        #[cfg(not(target_os = "windows"))]
-        {
-            std::env::temp_dir().join("re-fast-logs")
-        }
+        // 使用当前工作目录下的 logs 文件夹保存日志
+        std::env::current_dir()
+            .unwrap_or_else(|_| std::env::temp_dir())
+            .join("logs")
     }
     
     fn get_log_file_state() -> Arc<Mutex<LogFileState>> {

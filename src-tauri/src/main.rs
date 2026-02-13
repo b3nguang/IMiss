@@ -308,8 +308,9 @@ fn main() {
                     "open_logs" => {
                         #[cfg(target_os = "windows")]
                         {
-                            use crate::everything_search::windows;
-                            let log_dir = windows::get_log_dir();
+                            let log_dir = std::env::current_dir()
+                                .unwrap_or_else(|_| std::env::temp_dir())
+                                .join("logs");
                             
                             // 确保日志目录存在
                             if let Err(e) = std::fs::create_dir_all(&log_dir) {
