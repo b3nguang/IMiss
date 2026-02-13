@@ -26,7 +26,7 @@ let pluginExecutionInProgress = new Map<string, number>(); // pluginId -> timest
  */
 export interface LauncherInitializationOptions {
   // 状态设置函数
-  setOllamaSettings: (settings: { model: string; base_url: string }) => void;
+  setLlmSettings: (settings: { model: string; base_url: string; api_key?: string }) => void;
   setResultStyle: (style: ResultStyle) => void;
   setCloseOnBlur: (close: boolean) => void;
   setSearchEngines: (engines: SearchEngineConfig[]) => void;
@@ -66,7 +66,7 @@ export function useLauncherInitialization(
   options: LauncherInitializationOptions
 ): void {
   const {
-    setOllamaSettings,
+    setLlmSettings,
     setResultStyle,
     setCloseOnBlur,
     setSearchEngines,
@@ -97,7 +97,7 @@ export function useLauncherInitialization(
     const loadSettings = async () => {
       try {
         const settings = await tauriApi.getSettings();
-        setOllamaSettings(settings.ollama);
+        setLlmSettings(settings.llm);
         const styleFromSettings = (settings.result_style as ResultStyle) || null;
         const styleFromCache = localStorage.getItem("result-style");
         const fallback =
@@ -129,7 +129,7 @@ export function useLauncherInitialization(
     return () => {
       unlisten.then((fn) => fn());
     };
-  }, [setOllamaSettings, setResultStyle, setCloseOnBlur, setSearchEngines, closeOnBlurRef]);
+  }, [setLlmSettings, setResultStyle, setCloseOnBlur, setSearchEngines, closeOnBlurRef]);
 
   // 监听 JSON 查看器窗口准备好事件，发送待处理的内容
   useEffect(() => {

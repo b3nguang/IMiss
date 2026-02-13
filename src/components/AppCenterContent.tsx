@@ -3,7 +3,7 @@ import { plugins, executePlugin } from "../plugins";
 import type { PluginContext, IndexStatus, DatabaseBackupInfo, PluginUsage } from "../types";
 import { tauriApi } from "../api/tauri";
 import { listen, emit } from "@tauri-apps/api/event";
-import { OllamaSettingsPage, SystemSettingsPage, AboutSettingsPage, LauncherSettingsPage } from "./SettingsPages";
+import { AiSettingsPage, SystemSettingsPage, AboutSettingsPage, LauncherSettingsPage } from "./SettingsPages";
 import { fetchUsersCount, fetchDailyUserCounts } from "../api/events";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { AppIndexList } from "./AppIndexList";
@@ -46,9 +46,10 @@ type SettingsPage = "system" | "launcher" | "ollama";
 
 // 设置接口
 interface Settings {
-  ollama: {
+  llm: {
     model: string;
     base_url: string;
+    api_key?: string;
   };
   startup_enabled?: boolean;
   result_style?: "compact" | "soft" | "skeuomorphic" | "m3";
@@ -154,12 +155,12 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
   // 设置相关状态
   const [activeSettingsPage, setActiveSettingsPage] = useState<SettingsPage>("system");
   const [settings, setSettings] = useState<Settings>({
-    ollama: {
-      model: "llama2",
-      base_url: "http://localhost:11434",
+    llm: {
+      model: "gpt-3.5-turbo",
+      base_url: "https://api.openai.com/v1",
     },
     startup_enabled: false,
-    result_style: "skeuomorphic",
+    result_style: "m3",
     close_on_blur: true,
   });
   const [isLoadingSettings, setIsLoadingSettings] = useState(true);
@@ -167,8 +168,6 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
-  const [isListingModels, setIsListingModels] = useState(false);
-  const [availableModels, setAvailableModels] = useState<string[]>([]);
   const hasLoadedSettingsRef = useRef(false);
   // 标记当前是否正在应用后端加载的设置，避免立即触发自动保存
   const isApplyingSettingsRef = useRef(false);
@@ -748,63 +747,48 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
     };
   }, []);
 
-  // 测试连接
+  // 测试连接（OpenAI-compatible）
   const testConnection = async () => {
     setIsTesting(true);
     setTestResult(null);
     
     try {
-      const baseUrl = settings.ollama.base_url || 'http://localhost:11434';
-      const model = settings.ollama.model || 'llama2';
+      const baseUrl = (settings.llm.base_url || 'https://api.openai.com/v1').replace(/\/+$/, '');
+      const model = settings.llm.model || 'gpt-3.5-turbo';
       
-      // 尝试使用 chat API 测试连接
-      const response = await fetch(`${baseUrl}/api/chat`, {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (settings.llm.api_key) {
+        headers['Authorization'] = `Bearer ${settings.llm.api_key}`;
+      }
+
+      const response = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify({
           model: model,
           messages: [
             {
               role: 'user',
-              content: '你好',
+              content: 'Hi',
             },
           ],
+          max_tokens: 5,
           stream: false,
         }),
       });
 
       if (!response.ok) {
-        // 如果 chat API 失败，尝试使用 generate API
-        const generateResponse = await fetch(`${baseUrl}/api/generate`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: model,
-            prompt: '你好',
-            stream: false,
-          }),
-        });
-
-        if (!generateResponse.ok) {
-          throw new Error(`API 请求失败: ${generateResponse.status} ${generateResponse.statusText}`);
-        }
-
-        await generateResponse.json();
-        setTestResult({
-          success: true,
-          message: `连接成功！模型 "${model}" 可用。`,
-        });
-      } else {
-        await response.json();
-        setTestResult({
-          success: true,
-          message: `连接成功！模型 "${model}" 可用。`,
-        });
+        const errorBody = await response.text().catch(() => '');
+        throw new Error(`API 请求失败 (${response.status}): ${errorBody || response.statusText}`);
       }
+
+      await response.json();
+      setTestResult({
+        success: true,
+        message: `连接成功！模型 "${model}" 可用。`,
+      });
     } catch (error: any) {
       console.error('测试连接失败:', error);
       const errorMessage = error.message || '未知错误';
@@ -814,62 +798,6 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
       });
     } finally {
       setIsTesting(false);
-    }
-  };
-
-  // 列出可用模型
-  const listModels = async () => {
-    setIsListingModels(true);
-    setAvailableModels([]);
-    
-    try {
-      const baseUrl = settings.ollama.base_url || 'http://localhost:11434';
-      
-      // 使用 Ollama API 的 /api/tags 端点获取所有已安装的模型
-      const response = await fetch(`${baseUrl}/api/tags`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`API 请求失败: ${response.status} ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      const models: string[] = [];
-      
-      if (data.models && Array.isArray(data.models)) {
-        data.models.forEach((model: any) => {
-          if (model.name) {
-            models.push(model.name);
-          }
-        });
-      }
-
-      if (models.length === 0) {
-        setTestResult({
-          success: false,
-          message: '未找到已安装的模型。请先使用 `ollama pull <model_name>` 安装模型。',
-        });
-      } else {
-        setAvailableModels(models);
-        setTestResult({
-          success: true,
-          message: `成功获取 ${models.length} 个可用模型。`,
-        });
-      }
-    } catch (error: any) {
-      console.error('列出模型失败:', error);
-      const errorMessage = error.message || '未知错误';
-      setTestResult({
-        success: false,
-        message: `获取模型列表失败: ${errorMessage}`,
-      });
-      setAvailableModels([]);
-    } finally {
-      setIsListingModels(false);
     }
   };
 
@@ -1524,7 +1452,7 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
         const settingsMenuItems = [
           { id: "system" as SettingsPage, label: "系统设置", icon: "⚙️" },
           { id: "launcher" as SettingsPage, label: "启动器设置", icon: "🚀" },
-          { id: "ollama" as SettingsPage, label: "Ollama 配置", icon: "🤖" },
+          { id: "ollama" as SettingsPage, label: "AI 模型", icon: "🤖" },
         ];
 
         return (
@@ -1572,15 +1500,12 @@ export function AppCenterContent({ onPluginClick, onClose: _onClose }: AppCenter
                   </div>
                 )}
                 {activeSettingsPage === "ollama" && (
-                  <OllamaSettingsPage
+                  <AiSettingsPage
                     settings={settings}
                     onSettingsChange={setSettings}
                     isTesting={isTesting}
                     testResult={testResult}
                     onTestConnection={testConnection}
-                    isListingModels={isListingModels}
-                    availableModels={availableModels}
-                    onListModels={listModels}
                   />
                 )}
                 {activeSettingsPage === "system" && (

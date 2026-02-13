@@ -17,7 +17,7 @@ import { handleEscapeKey, closePluginModalAndHide, closeMemoModalAndHide } from 
 import { clearAllResults, loadResultsIncrementally } from "../utils/resultUtils";
 import { getMainContainer as getMainContainerUtil } from "../utils/windowUtils";
 import type { SearchResult } from "../utils/resultUtils";
-import { askOllama } from "../utils/ollamaUtils";
+import { askAi } from "../utils/ollamaUtils";
 import { handleLaunch as handleLaunchUtil } from "../utils/launchUtils";
 import {
   startEverythingSearchSession,
@@ -83,9 +83,9 @@ export function LauncherWindow({ updateInfo }: LauncherWindowProps) {
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [aiAnswer, setAiAnswer] = useState<string | null>(null);
   const [showAiAnswer, setShowAiAnswer] = useState(false); // 是否显示 AI 回答模式
-  const [ollamaSettings, setOllamaSettings] = useState<{ model: string; base_url: string }>({
-    model: "llama2",
-    base_url: "http://localhost:11434",
+  const [llmSettings, setLlmSettings] = useState<{ model: string; base_url: string; api_key?: string }>({
+    model: "gpt-3.5-turbo",
+    base_url: "https://api.openai.com/v1",
   });
   const [detectedUrls, setDetectedUrls] = useState<string[]>([]);
   const [detectedEmails, setDetectedEmails] = useState<string[]>([]);
@@ -578,19 +578,19 @@ export function LauncherWindow({ updateInfo }: LauncherWindowProps) {
 
   const layout = useMemo(() => getLayoutConfig(resultStyle), [resultStyle]);
 
-  // Call Ollama API to ask AI (流式请求)
-  const askOllamaWrapper = useCallback(async (prompt: string) => {
-    await askOllama(prompt, ollamaSettings, {
+  // Call OpenAI-compatible API to ask AI (流式请求)
+  const askAiWrapper = useCallback(async (prompt: string) => {
+    await askAi(prompt, llmSettings, {
       setAiAnswer,
       setShowAiAnswer,
       setIsAiLoading,
     });
-  }, [ollamaSettings]);
+  }, [llmSettings]);
 
-  // 将 askOllama 暴露到 window 以避免未使用告警并便于调试
+  // 将 askAi 暴露到 window 以避免未使用告警并便于调试
   useEffect(() => {
-    (window as any).__askOllama = askOllamaWrapper;
-  }, [askOllamaWrapper]);
+    (window as any).__askAi = askAiWrapper;
+  }, [askAiWrapper]);
 
   // 同步更新 hasResultsRef，用于优化查询去重检查
   useEffect(() => {
@@ -1164,7 +1164,7 @@ export function LauncherWindow({ updateInfo }: LauncherWindowProps) {
 
   // 使用自定义 hook 处理所有初始化逻辑
   useLauncherInitialization({
-    setOllamaSettings,
+    setLlmSettings,
     setResultStyle,
     setCloseOnBlur,
     setSearchEngines,

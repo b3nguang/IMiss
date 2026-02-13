@@ -9,7 +9,7 @@ import type { WordRecord } from "../types";
 import { formatDateTime } from "../utils/dateUtils";
 
 interface WordbookPanelProps {
-  ollamaSettings: { model: string; base_url: string };
+  llmSettings: { model: string; base_url: string; api_key?: string };
   onRefresh?: () => void;
   showAiExplanation?: boolean;
   onShowAiExplanationChange?: (show: boolean) => void;
@@ -19,7 +19,7 @@ interface WordbookPanelProps {
 }
 
 export function WordbookPanel({ 
-  ollamaSettings, 
+  llmSettings, 
   onRefresh,
   showAiExplanation: externalShowAiExplanation,
   onShowAiExplanationChange,
@@ -334,12 +334,11 @@ export function WordbookPanel({
     const wordText = record.word;
     
     let accumulatedAnswer = '';
-    let buffer = ''; // 用于处理不完整的行
-    let isFirstChunk = true; // 标记是否是第一个 chunk
+    let buffer = '';
 
     try {
-      const baseUrl = ollamaSettings.base_url || 'http://localhost:11434';
-      const model = ollamaSettings.model || 'llama2';
+      const baseUrl = (llmSettings.base_url || 'https://api.openai.com/v1').replace(/\/+$/, '');
+      const model = llmSettings.model || 'gpt-3.5-turbo';
       
       const prompt = `请详细解释英语单词 "${record.word}"（中文翻译：${record.translation}）。请提供：
 1. 单词的详细含义和用法
@@ -349,265 +348,78 @@ export function WordbookPanel({
 5. 记忆技巧或词根词缀分析（如果有）
 请用中文回答，内容要详细且实用。`;
 
-      // 尝试使用 chat API (流式)
-      const response = await fetch(`${baseUrl}/api/chat`, {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (llmSettings.api_key) {
+        headers['Authorization'] = `Bearer ${llmSettings.api_key}`;
+      }
+
+      const response = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify({
-          model: model,
-          messages: [
-            {
-              role: 'user',
-              content: prompt,
-            },
-          ],
+          model,
+          messages: [{ role: 'user', content: prompt }],
           stream: true,
         }),
       });
 
       if (!response.ok) {
-        // 如果chat API失败，尝试使用generate API作为后备
-        const generateResponse = await fetch(`${baseUrl}/api/generate`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: model,
-            prompt: prompt,
-            stream: true,
-          }),
-        });
-
-        if (!generateResponse.ok) {
-          throw new Error(`Ollama API错误: ${generateResponse.statusText}`);
-        }
-
-        // 处理 generate API 的流式响应
-        const reader = generateResponse.body?.getReader();
-        const decoder = new TextDecoder();
-        
-        if (!reader) {
-          throw new Error('无法读取响应流');
-        }
-
-        // 立即开始读取，不等待
-        while (true) {
-          const { done, value } = await reader.read();
-          if (isFirstChunk && !done && value) {
-            isFirstChunk = false;
-          }
-          if (done) {
-            // 处理剩余的 buffer
-            if (buffer.trim()) {
-              try {
-                const data = JSON.parse(buffer);
-                if (data.response) {
-                  accumulatedAnswer += data.response;
-                  flushSync(() => {
-                    setAiExplanationText(accumulatedAnswer);
-                  });
-                }
-              } catch (e) {
-                console.warn('解析最后的数据失败:', e, buffer);
-              }
-            }
-            break;
-          }
-
-          const chunk = decoder.decode(value, { stream: true });
-          buffer += chunk;
-          const lines = buffer.split('\n');
-          
-          // 保留最后一个不完整的行
-          buffer = lines.pop() || '';
-
-          // 快速处理所有完整的行，累积更新后一次性刷新
-          let hasUpdate = false;
-          for (const line of lines) {
-            const trimmedLine = line.trim();
-            if (!trimmedLine) continue;
-            
-            try {
-              const data = JSON.parse(trimmedLine);
-              if (data.response && data.response.length > 0) {
-                accumulatedAnswer += data.response;
-                hasUpdate = true;
-              }
-              if (data.done) {
-                flushSync(() => {
-                  setIsAiExplanationLoading(false);
-                  setAiExplanationText(accumulatedAnswer);
-                });
-                // 保存AI解释到数据库
-                if (accumulatedAnswer && wordId) {
-                  console.log(`[AI解释] 开始保存解释到数据库，单词ID: ${wordId}, 单词: ${wordText}, 解释长度: ${accumulatedAnswer.length}`);
-                  try {
-                    const updated = await tauriApi.updateWordRecord(
-                      wordId,
-                      null,
-                      null,
-                      null,
-                      null,
-                      null,
-                      null,
-                      accumulatedAnswer,
-                      null,
-                      null,
-                      null
-                    );
-                    console.log(`[AI解释] 保存成功，单词: ${wordText}, 已保存的解释长度: ${updated.aiExplanation?.length || 0}`);
-                    // 更新本地记录
-                    setAllWordRecords((records) => {
-                      return records.map((r) => 
-                        r.id === wordId 
-                          ? { ...r, aiExplanation: accumulatedAnswer }
-                          : r
-                      );
-                    });
-                    setWordRecords((records) => {
-                      return records.map((r) => 
-                        r.id === wordId 
-                          ? { ...r, aiExplanation: accumulatedAnswer }
-                          : r
-                      );
-                    });
-                  } catch (error) {
-                    console.error(`[AI解释] 保存失败，单词: ${wordText}`, error);
-                  }
-                } else {
-                  console.warn(`[AI解释] 跳过保存 - accumulatedAnswer: ${!!accumulatedAnswer}, wordId: ${!!wordId}`);
-                }
-                return;
-              }
-            } catch (e) {
-              // 忽略解析错误，继续处理下一行
-              console.warn('解析流式数据失败:', e, trimmedLine);
-            }
-          }
-          
-          // 如果有更新，立即更新UI（一次性更新，避免多次flushSync）
-          if (hasUpdate) {
-            flushSync(() => {
-              setAiExplanationText(accumulatedAnswer);
-            });
-          }
-        }
-        
-        flushSync(() => {
-          setIsAiExplanationLoading(false);
-          setAiExplanationText(accumulatedAnswer);
-        });
-        return;
+        const errorBody = await response.text().catch(() => '');
+        throw new Error(`API 请求失败 (${response.status}): ${errorBody || response.statusText}`);
       }
 
-      // 处理 chat API 的流式响应
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
-      
-      if (!reader) {
-        throw new Error('无法读取响应流');
-      }
+      if (!reader) throw new Error('无法读取响应流');
 
-      // 立即开始读取，不等待
       while (true) {
         const { done, value } = await reader.read();
-        if (isFirstChunk && !done && value) {
-          isFirstChunk = false;
-        }
-        if (done) {
-          // 处理剩余的 buffer
-          if (buffer.trim()) {
-            try {
-              const data = JSON.parse(buffer);
-              if (data.message?.content) {
-                accumulatedAnswer += data.message.content;
-              }
-            } catch (e) {
-              console.warn('解析最后的数据失败:', e, buffer);
-            }
-          }
-          break;
-        }
+        if (done) break;
 
         const chunk = decoder.decode(value, { stream: true });
         buffer += chunk;
         const lines = buffer.split('\n');
-        
-        // 保留最后一个不完整的行
         buffer = lines.pop() || '';
 
-        // 快速处理所有完整的行，累积更新后一次性刷新
         let hasUpdate = false;
         for (const line of lines) {
           const trimmedLine = line.trim();
           if (!trimmedLine) continue;
-          
+          if (trimmedLine === 'data: [DONE]') {
+            flushSync(() => {
+              setIsAiExplanationLoading(false);
+              setAiExplanationText(accumulatedAnswer);
+            });
+            // 保存AI解释到数据库
+            if (accumulatedAnswer && wordId) {
+              console.log(`[AI解释] 开始保存解释到数据库，单词ID: ${wordId}, 单词: ${wordText}, 解释长度: ${accumulatedAnswer.length}`);
+              try {
+                const updated = await tauriApi.updateWordRecord(wordId, null, null, null, null, null, null, accumulatedAnswer, null, null, null);
+                console.log(`[AI解释] 保存成功，单词: ${wordText}, 已保存的解释长度: ${updated.aiExplanation?.length || 0}`);
+                setAllWordRecords((records) => records.map((r) => r.id === wordId ? { ...r, aiExplanation: accumulatedAnswer } : r));
+                setWordRecords((records) => records.map((r) => r.id === wordId ? { ...r, aiExplanation: accumulatedAnswer } : r));
+              } catch (error) {
+                console.error(`[AI解释] 保存失败，单词: ${wordText}`, error);
+              }
+            }
+            return;
+          }
+          const dataPrefix = 'data: ';
+          const jsonStr = trimmedLine.startsWith(dataPrefix) ? trimmedLine.slice(dataPrefix.length) : trimmedLine;
+          if (!jsonStr.trim()) continue;
           try {
-            const data = JSON.parse(trimmedLine);
-            if (data.message?.content && data.message.content.length > 0) {
-              accumulatedAnswer += data.message.content;
+            const data = JSON.parse(jsonStr);
+            const content = data.choices?.[0]?.delta?.content;
+            if (content) {
+              accumulatedAnswer += content;
               hasUpdate = true;
             }
-            if (data.done) {
-              flushSync(() => {
-                setIsAiExplanationLoading(false);
-                setAiExplanationText(accumulatedAnswer);
-              });
-              // 保存AI解释到数据库
-              if (accumulatedAnswer && wordId) {
-                console.log(`[AI解释] 开始保存解释到数据库，单词ID: ${wordId}, 单词: ${wordText}, 解释长度: ${accumulatedAnswer.length}`);
-                try {
-                  const updated = await tauriApi.updateWordRecord(
-                    wordId,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    accumulatedAnswer,
-                    null,
-                    null,
-                    null
-                  );
-                  console.log(`[AI解释] 保存成功，单词: ${wordText}, 已保存的解释长度: ${updated.aiExplanation?.length || 0}`);
-                  // 更新本地记录
-                  setAllWordRecords((records) => {
-                    return records.map((r) => 
-                      r.id === wordId 
-                        ? { ...r, aiExplanation: accumulatedAnswer }
-                        : r
-                    );
-                  });
-                  setWordRecords((records) => {
-                    return records.map((r) => 
-                      r.id === wordId 
-                        ? { ...r, aiExplanation: accumulatedAnswer }
-                        : r
-                    );
-                  });
-                } catch (error) {
-                  console.error(`[AI解释] 保存失败，单词: ${wordText}`, error);
-                }
-              } else {
-                console.warn(`[AI解释] 跳过保存 - accumulatedAnswer: ${!!accumulatedAnswer}, wordId: ${!!wordId}`);
-              }
-              return;
-            }
           } catch (e) {
-            // 忽略解析错误，继续处理下一行
-            console.warn('解析流式数据失败:', e, trimmedLine);
+            console.warn('解析流式数据失败:', e, jsonStr);
           }
         }
-        
-        // 如果有更新，立即更新UI（一次性更新，避免多次flushSync）
         if (hasUpdate) {
-          flushSync(() => {
-            setAiExplanationText(accumulatedAnswer);
-          });
+          flushSync(() => { setAiExplanationText(accumulatedAnswer); });
         }
       }
       
@@ -621,49 +433,22 @@ export function WordbookPanel({
       if (accumulatedAnswer && wordId) {
         console.log(`[AI解释] 流结束，开始保存解释到数据库，单词ID: ${wordId}, 单词: ${wordText}, 解释长度: ${accumulatedAnswer.length}`);
         try {
-          const updated = await tauriApi.updateWordRecord(
-            wordId,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            accumulatedAnswer,
-            null,
-            null,
-            null
-          );
+          const updated = await tauriApi.updateWordRecord(wordId, null, null, null, null, null, null, accumulatedAnswer, null, null, null);
           console.log(`[AI解释] 保存成功，单词: ${wordText}, 已保存的解释长度: ${updated.aiExplanation?.length || 0}`);
-          // 更新本地记录
-          setAllWordRecords((records) => {
-            return records.map((r) => 
-              r.id === wordId 
-                ? { ...r, aiExplanation: accumulatedAnswer }
-                : r
-            );
-          });
-          setWordRecords((records) => {
-            return records.map((r) => 
-              r.id === wordId 
-                ? { ...r, aiExplanation: accumulatedAnswer }
-                : r
-            );
-          });
+          setAllWordRecords((records) => records.map((r) => r.id === wordId ? { ...r, aiExplanation: accumulatedAnswer } : r));
+          setWordRecords((records) => records.map((r) => r.id === wordId ? { ...r, aiExplanation: accumulatedAnswer } : r));
         } catch (error) {
           console.error(`[AI解释] 保存失败，单词: ${wordText}`, error);
         }
-      } else {
-        console.warn(`[AI解释] 流结束但跳过保存 - accumulatedAnswer: ${!!accumulatedAnswer}, wordId: ${!!wordId}`);
       }
     } catch (error: any) {
       console.error('AI解释失败:', error);
       flushSync(() => {
         setIsAiExplanationLoading(false);
-        setAiExplanationText(`获取AI解释失败: ${error.message || '未知错误'}\n\n请确保：\n1. Ollama服务正在运行\n2. 已安装并配置了正确的模型\n3. 设置中的Ollama配置正确`);
+        setAiExplanationText(`获取AI解释失败: ${error.message || '未知错误'}\n\n请确保：\n1. API 服务可用\n2. 模型名称正确\n3. 设置中的 AI 配置正确`);
       });
     }
-  }, [ollamaSettings]);
+  }, [llmSettings]);
 
   // 重新生成AI解释
   const handleRegenerateExplanation = useCallback(() => {
@@ -796,12 +581,11 @@ export function WordbookPanel({
     setHasAutoSaved(false); // 重置自动保存标记
 
     let accumulatedAnswer = '';
-    let buffer = ''; // 用于处理不完整的行
-    let isFirstChunk = true; // 标记是否是第一个 chunk
+    let buffer = '';
 
     try {
-      const baseUrl = ollamaSettings.base_url || 'http://localhost:11434';
-      const model = ollamaSettings.model || 'llama2';
+      const baseUrl = (llmSettings.base_url || 'https://api.openai.com/v1').replace(/\/+$/, '');
+      const model = llmSettings.model || 'gpt-3.5-turbo';
       
       const prompt = `请详细解释英语单词 "${word.trim()}"。请提供：
 1. 单词的详细含义和用法
@@ -811,199 +595,69 @@ export function WordbookPanel({
 5. 记忆技巧或词根词缀分析（如果有）
 请用中文回答，内容要详细且实用。`;
 
-      // 尝试使用 chat API (流式)
-      const response = await fetch(`${baseUrl}/api/chat`, {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (llmSettings.api_key) {
+        headers['Authorization'] = `Bearer ${llmSettings.api_key}`;
+      }
+
+      const response = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify({
-          model: model,
-          messages: [
-            {
-              role: 'user',
-              content: prompt,
-            },
-          ],
+          model,
+          messages: [{ role: 'user', content: prompt }],
           stream: true,
         }),
       });
 
       if (!response.ok) {
-        // 如果chat API失败，尝试使用generate API作为后备
-        const generateResponse = await fetch(`${baseUrl}/api/generate`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: model,
-            prompt: prompt,
-            stream: true,
-          }),
-        });
-
-        if (!generateResponse.ok) {
-          throw new Error(`Ollama API错误: ${generateResponse.statusText}`);
-        }
-
-        // 处理 generate API 的流式响应
-        const reader = generateResponse.body?.getReader();
-        const decoder = new TextDecoder();
-        
-        if (!reader) {
-          throw new Error('无法读取响应流');
-        }
-
-        // 立即开始读取，不等待
-        while (true) {
-          const { done, value } = await reader.read();
-          if (isFirstChunk && !done && value) {
-            isFirstChunk = false;
-          }
-          if (done) {
-            // 处理剩余的 buffer
-            if (buffer.trim()) {
-              try {
-                const data = JSON.parse(buffer);
-                if (data.response) {
-                  accumulatedAnswer += data.response;
-                  flushSync(() => {
-                    setAiExplanationText(accumulatedAnswer);
-                  });
-                }
-              } catch (e) {
-                console.warn('解析最后的数据失败:', e, buffer);
-              }
-            }
-            break;
-          }
-
-          const chunk = decoder.decode(value, { stream: true });
-          buffer += chunk;
-          const lines = buffer.split('\n');
-          
-          // 保留最后一个不完整的行
-          buffer = lines.pop() || '';
-
-          // 快速处理所有完整的行，累积更新后一次性刷新
-          let hasUpdate = false;
-          for (const line of lines) {
-            const trimmedLine = line.trim();
-            if (!trimmedLine) continue;
-            
-            try {
-              const data = JSON.parse(trimmedLine);
-              if (data.response) {
-                accumulatedAnswer += data.response;
-                hasUpdate = true;
-              }
-              if (data.done) {
-                flushSync(() => {
-                  setIsAiExplanationLoading(false);
-                  setAiExplanationText(accumulatedAnswer);
-                });
-                // AI查词完成，自动保存（generate API done）
-                if (accumulatedAnswer && !hasAutoSaved) {
-                  autoSaveWord(word.trim(), accumulatedAnswer);
-                }
-                return;
-              }
-            } catch (e) {
-              // 忽略解析错误，继续处理下一行
-              console.warn('解析流式数据失败:', e, trimmedLine);
-            }
-          }
-          
-          // 如果有更新，立即更新UI（一次性更新，避免多次flushSync）
-          if (hasUpdate) {
-            flushSync(() => {
-              setAiExplanationText(accumulatedAnswer);
-            });
-          }
-        }
-        
-        flushSync(() => {
-          setIsAiExplanationLoading(false);
-          setAiExplanationText(accumulatedAnswer);
-        });
-        // AI查词完成，自动保存（generate API流结束）
-        if (accumulatedAnswer && !hasAutoSaved) {
-          autoSaveWord(word.trim(), accumulatedAnswer);
-        }
-        return;
+        const errorBody = await response.text().catch(() => '');
+        throw new Error(`API 请求失败 (${response.status}): ${errorBody || response.statusText}`);
       }
 
-      // 处理 chat API 的流式响应
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
-      
-      if (!reader) {
-        throw new Error('无法读取响应流');
-      }
+      if (!reader) throw new Error('无法读取响应流');
 
-      // 立即开始读取，不等待
       while (true) {
         const { done, value } = await reader.read();
-        if (isFirstChunk && !done && value) {
-          isFirstChunk = false;
-        }
-        if (done) {
-          // 处理剩余的 buffer
-          if (buffer.trim()) {
-            try {
-              const data = JSON.parse(buffer);
-              if (data.message?.content) {
-                accumulatedAnswer += data.message.content;
-              }
-            } catch (e) {
-              console.warn('解析最后的数据失败:', e, buffer);
-            }
-          }
-          break;
-        }
+        if (done) break;
 
         const chunk = decoder.decode(value, { stream: true });
         buffer += chunk;
         const lines = buffer.split('\n');
-        
-        // 保留最后一个不完整的行
         buffer = lines.pop() || '';
 
-        // 快速处理所有完整的行，累积更新后一次性刷新
         let hasUpdate = false;
         for (const line of lines) {
           const trimmedLine = line.trim();
           if (!trimmedLine) continue;
-          
+          if (trimmedLine === 'data: [DONE]') {
+            flushSync(() => {
+              setIsAiExplanationLoading(false);
+              setAiExplanationText(accumulatedAnswer);
+            });
+            if (accumulatedAnswer && !hasAutoSaved) {
+              autoSaveWord(word.trim(), accumulatedAnswer);
+            }
+            return;
+          }
+          const dataPrefix = 'data: ';
+          const jsonStr = trimmedLine.startsWith(dataPrefix) ? trimmedLine.slice(dataPrefix.length) : trimmedLine;
+          if (!jsonStr.trim()) continue;
           try {
-            const data = JSON.parse(trimmedLine);
-            if (data.message?.content) {
-              accumulatedAnswer += data.message.content;
+            const data = JSON.parse(jsonStr);
+            const content = data.choices?.[0]?.delta?.content;
+            if (content) {
+              accumulatedAnswer += content;
               hasUpdate = true;
             }
-            if (data.done) {
-              flushSync(() => {
-                setIsAiExplanationLoading(false);
-                setAiExplanationText(accumulatedAnswer);
-              });
-              // AI查词完成，自动保存（chat API done）
-              if (accumulatedAnswer && !hasAutoSaved) {
-                autoSaveWord(word.trim(), accumulatedAnswer);
-              }
-              return;
-            }
           } catch (e) {
-            // 忽略解析错误，继续处理下一行
-            console.warn('解析流式数据失败:', e, trimmedLine);
+            console.warn('解析流式数据失败:', e, jsonStr);
           }
         }
-        
-        // 如果有更新，立即更新UI（一次性更新，避免多次flushSync）
         if (hasUpdate) {
-          flushSync(() => {
-            setAiExplanationText(accumulatedAnswer);
-          });
+          flushSync(() => { setAiExplanationText(accumulatedAnswer); });
         }
       }
       
@@ -1012,7 +666,6 @@ export function WordbookPanel({
         setIsAiExplanationLoading(false);
         setAiExplanationText(accumulatedAnswer);
       });
-      // AI查词完成，自动保存（chat API流结束）
       if (accumulatedAnswer && !hasAutoSaved) {
         autoSaveWord(word.trim(), accumulatedAnswer);
       }
@@ -1020,10 +673,10 @@ export function WordbookPanel({
       console.error('AI查词失败:', error);
       flushSync(() => {
         setIsAiExplanationLoading(false);
-        setAiExplanationText(`获取AI查词结果失败: ${error.message || '未知错误'}\n\n请确保：\n1. Ollama服务正在运行\n2. 已安装并配置了正确的模型\n3. 设置中的Ollama配置正确`);
+        setAiExplanationText(`获取AI查词结果失败: ${error.message || '未知错误'}\n\n请确保：\n1. API 服务可用\n2. 模型名称正确\n3. 设置中的 AI 配置正确`);
       });
     }
-  }, [ollamaSettings, setShowAiExplanation, autoSaveWord, hasAutoSaved]);
+  }, [llmSettings, setShowAiExplanation, autoSaveWord, hasAutoSaved]);
 
   // 暴露刷新函数给父组件
   useEffect(() => {

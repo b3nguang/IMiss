@@ -4,128 +4,109 @@ import { UpdateSection } from "./UpdateSection";
 import { ErrorDialog } from "./ErrorDialog";
 import type { SearchEngineConfig } from "../types";
 
-interface OllamaSettingsProps {
+interface AiSettingsProps {
   settings: {
-    ollama: {
+    llm: {
       model: string;
       base_url: string;
+      api_key?: string;
     };
   };
   onSettingsChange: (settings: any) => void;
   isTesting: boolean;
   testResult: { success: boolean; message: string } | null;
   onTestConnection: () => void;
-  isListingModels: boolean;
-  availableModels: string[];
-  onListModels: () => void;
 }
 
-export function OllamaSettingsPage({
+export function AiSettingsPage({
   settings,
   onSettingsChange,
   isTesting,
   testResult,
   onTestConnection,
-  isListingModels,
-  availableModels,
-  onListModels,
-}: OllamaSettingsProps) {
+}: AiSettingsProps) {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-semibold text-gray-800 mb-2">Ollama 配置</h2>
-        <p className="text-sm text-gray-500">配置 Ollama AI 模型和 API 服务地址</p>
+        <h2 className="text-xl font-semibold text-[var(--md-sys-color-on-surface)] mb-2">AI 模型配置</h2>
+        <p className="text-sm text-[var(--md-sys-color-on-surface-variant)]">配置 OpenAI 兼容的 AI 服务（支持 OpenAI、DeepSeek、Ollama 等）</p>
       </div>
 
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <div className="space-y-4">
+      <div className="bg-[var(--md-sys-color-surface-container-lowest)] rounded-[var(--md-sys-shape-corner-large)] border border-[var(--md-sys-color-outline-variant)]/30 p-6">
+        <div className="space-y-5">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              模型名称
-            </label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={settings.ollama.model}
-                onChange={(e) =>
-                  onSettingsChange({
-                    ...settings,
-                    ollama: { ...settings.ollama, model: e.target.value },
-                  })
-                }
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                placeholder="例如: llama2, mistral, codellama"
-              />
-              <button
-                onClick={onListModels}
-                disabled={isListingModels || !settings.ollama.base_url.trim()}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors text-sm whitespace-nowrap"
-                title="列出所有可用的模型"
-              >
-                {isListingModels ? "加载中..." : "列出模型"}
-              </button>
-            </div>
-            <p className="mt-1 text-xs text-gray-500">
-              输入已安装的 Ollama 模型名称，或点击"列出模型"自动获取
-            </p>
-            {availableModels.length > 0 && (
-              <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-md">
-                <p className="text-xs font-medium text-blue-800 mb-2">可用模型：</p>
-                <div className="flex flex-wrap gap-2">
-                  {availableModels.map((model) => (
-                    <button
-                      key={model}
-                      onClick={() =>
-                        onSettingsChange({
-                          ...settings,
-                          ollama: { ...settings.ollama, model: model },
-                        })
-                      }
-                      className={`px-2 py-1 text-xs rounded transition-colors ${
-                        settings.ollama.model === model
-                          ? "bg-blue-600 text-white"
-                          : "bg-white text-blue-700 hover:bg-blue-100 border border-blue-300"
-                      }`}
-                    >
-                      {model}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              API 地址
+            <label className="block text-sm font-medium text-[var(--md-sys-color-on-surface)] mb-2">
+              API 地址 (Base URL)
             </label>
             <input
               type="text"
-              value={settings.ollama.base_url}
+              value={settings.llm.base_url}
               onChange={(e) =>
                 onSettingsChange({
                   ...settings,
-                  ollama: { ...settings.ollama, base_url: e.target.value },
+                  llm: { ...settings.llm, base_url: e.target.value },
                 })
               }
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="http://localhost:11434"
+              className="w-full px-3 py-2 border border-[var(--md-sys-color-outline-variant)]/40 rounded-[var(--md-sys-shape-corner-medium)] focus:outline-none focus:ring-2 focus:ring-[var(--md-sys-color-primary)]/40 focus:border-[var(--md-sys-color-primary)] bg-[var(--md-sys-color-surface)] text-[var(--md-sys-color-on-surface)] placeholder-[var(--md-sys-color-outline)]"
+              placeholder="https://api.openai.com/v1"
             />
-            <p className="mt-1 text-xs text-gray-500">
-              Ollama API 服务地址
+            <p className="mt-1 text-xs text-[var(--md-sys-color-outline)]">
+              OpenAI: https://api.openai.com/v1 · DeepSeek: https://api.deepseek.com/v1 · Ollama: http://localhost:11434/v1
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-[var(--md-sys-color-on-surface)] mb-2">
+              API Key
+            </label>
+            <input
+              type="password"
+              value={settings.llm.api_key || ''}
+              onChange={(e) =>
+                onSettingsChange({
+                  ...settings,
+                  llm: { ...settings.llm, api_key: e.target.value || undefined },
+                })
+              }
+              className="w-full px-3 py-2 border border-[var(--md-sys-color-outline-variant)]/40 rounded-[var(--md-sys-shape-corner-medium)] focus:outline-none focus:ring-2 focus:ring-[var(--md-sys-color-primary)]/40 focus:border-[var(--md-sys-color-primary)] bg-[var(--md-sys-color-surface)] text-[var(--md-sys-color-on-surface)] placeholder-[var(--md-sys-color-outline)]"
+              placeholder="sk-..."
+            />
+            <p className="mt-1 text-xs text-[var(--md-sys-color-outline)]">
+              本地 Ollama 无需 API Key，其他服务请填写对应的 API Key
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-[var(--md-sys-color-on-surface)] mb-2">
+              模型名称
+            </label>
+            <input
+              type="text"
+              value={settings.llm.model}
+              onChange={(e) =>
+                onSettingsChange({
+                  ...settings,
+                  llm: { ...settings.llm, model: e.target.value },
+                })
+              }
+              className="w-full px-3 py-2 border border-[var(--md-sys-color-outline-variant)]/40 rounded-[var(--md-sys-shape-corner-medium)] focus:outline-none focus:ring-2 focus:ring-[var(--md-sys-color-primary)]/40 focus:border-[var(--md-sys-color-primary)] bg-[var(--md-sys-color-surface)] text-[var(--md-sys-color-on-surface)] placeholder-[var(--md-sys-color-outline)]"
+              placeholder="gpt-3.5-turbo / deepseek-chat / llama2"
+            />
+            <p className="mt-1 text-xs text-[var(--md-sys-color-outline)]">
+              输入模型名称，如 gpt-4o、deepseek-chat、llama2 等
             </p>
           </div>
 
           <div className="pt-2">
             <button
               onClick={onTestConnection}
-              disabled={isTesting || !settings.ollama.model.trim() || !settings.ollama.base_url.trim()}
-              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors text-sm"
+              disabled={isTesting || !settings.llm.model.trim() || !settings.llm.base_url.trim()}
+              className="px-4 py-2 bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] rounded-full hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm"
             >
               {isTesting ? "测试中..." : "测试连接"}
             </button>
             {testResult && (
-              <div className={`mt-2 p-2 rounded-md text-sm ${
+              <div className={`mt-2 p-2 rounded-[var(--md-sys-shape-corner-medium)] text-sm ${
                 testResult.success 
                   ? "bg-green-50 text-green-700 border border-green-200" 
                   : "bg-red-50 text-red-700 border border-red-200"
@@ -139,6 +120,9 @@ export function OllamaSettingsPage({
     </div>
   );
 }
+
+// 向后兼容别名
+export const OllamaSettingsPage = AiSettingsPage;
 
 interface SystemSettingsProps {
   settings: {

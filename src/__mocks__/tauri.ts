@@ -122,7 +122,7 @@ export const tauriApi = {
 
   // Settings APIs
   getSettings: async () => ({
-    ollama: { model: "llama2", base_url: "http://localhost:11434" },
+    llm: { model: "gpt-3.5-turbo", base_url: "https://api.openai.com/v1" },
   }),
   saveSettings: async () => {},
 

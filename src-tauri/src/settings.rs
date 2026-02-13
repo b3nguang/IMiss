@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Settings {
-    pub ollama: OllamaSettings,
+    #[serde(alias = "ollama")]
+    pub llm: LlmSettings,
     #[serde(default)]
     pub startup_enabled: bool,
     #[serde(default)]
@@ -59,7 +60,7 @@ fn default_translation_tab_order() -> Vec<String> {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            ollama: OllamaSettings::default(),
+            llm: LlmSettings::default(),
             startup_enabled: false,
             hotkey: None,
             app_center_hotkey: None,
@@ -84,16 +85,29 @@ pub struct HotkeyConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct OllamaSettings {
+pub struct LlmSettings {
+    #[serde(default = "default_llm_model")]
     pub model: String,
+    #[serde(default = "default_llm_base_url")]
     pub base_url: String,
+    #[serde(default)]
+    pub api_key: Option<String>,
 }
 
-impl Default for OllamaSettings {
+fn default_llm_model() -> String {
+    "gpt-3.5-turbo".to_string()
+}
+
+fn default_llm_base_url() -> String {
+    "https://api.openai.com/v1".to_string()
+}
+
+impl Default for LlmSettings {
     fn default() -> Self {
         Self {
-            model: "llama2".to_string(),
-            base_url: "http://localhost:11434".to_string(),
+            model: default_llm_model(),
+            base_url: default_llm_base_url(),
+            api_key: None,
         }
     }
 }

@@ -24,9 +24,9 @@ export function TranslationWindow() {
   const [targetLang, setTargetLang] = useState("en");
   
   // AI解释相关状态（需要传递给WordbookPanel）
-  const [ollamaSettings, setOllamaSettings] = useState<{ model: string; base_url: string }>({
-    model: "llama2",
-    base_url: "http://localhost:11434",
+  const [llmSettings, setLlmSettings] = useState<{ model: string; base_url: string; api_key?: string }>({
+    model: "gpt-3.5-turbo",
+    base_url: "https://api.openai.com/v1",
   });
   
   // Tab顺序配置
@@ -59,12 +59,12 @@ export function TranslationWindow() {
     }
   }, [activeTab]);
 
-  // 加载设置（包括Ollama设置和Tab顺序）
+  // 加载设置（包括LLM设置和Tab顺序）
   useEffect(() => {
     const loadSettings = async () => {
       try {
         const settings = await tauriApi.getSettings();
-        setOllamaSettings(settings.ollama);
+        setLlmSettings(settings.llm);
         
         // 加载tab顺序配置
         if (settings.translation_tab_order && Array.isArray(settings.translation_tab_order)) {
@@ -186,7 +186,7 @@ export function TranslationWindow() {
       {/* 单词助手内容 */}
       {activeTab === "wordbook" && (
         <WordbookPanel
-          ollamaSettings={ollamaSettings}
+          llmSettings={llmSettings}
           onRefresh={wordbookRefreshRef.current as any}
           showAiExplanation={showAiExplanation}
           onShowAiExplanationChange={setShowAiExplanation}
