@@ -5713,7 +5713,7 @@ pub async fn check_update() -> Result<UpdateCheckResult, String> {
     let current_version = env!("CARGO_PKG_VERSION");
     
     // GitHub API URL
-    let api_url = "https://api.github.com/repos/Xieweikang123/ReFast/releases/latest";
+    let api_url = "https://api.github.com/repos/b3nguang/ReFast/releases/latest";
     
     // 创建 HTTP 客户端，设置 User-Agent（GitHub API 要求）
     let client = reqwest::Client::builder()

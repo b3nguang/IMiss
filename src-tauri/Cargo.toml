@@ -1,10 +1,10 @@
 [package]
-name = "re-fast"
-version = "1.0.65"
+name = "IMiscc"
+version = "1.0.66"
 description = "基于 Tauri 2 的 Windows 快速启动器"
-authors = ["Xieweikang123"]
+authors = ["b3nguang"]
 license = "MIT"
-repository = "https://github.com/Xieweikang123/ReFast.git"
+repository = "https://github.com/b3nguang/ReFast.git"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

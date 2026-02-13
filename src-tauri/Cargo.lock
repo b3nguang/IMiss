@@ -3,6 +3,33 @@
 version = 4
 
 [[package]]
+name = "IMiscc"
+version = "1.0.66"
+dependencies = [
+ "base64 0.21.7",
+ "chrono",
+ "futures-util",
+ "notify",
+ "pinyin",
+ "png",
+ "regex",
+ "reqwest 0.11.27",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-opener",
+ "tauri-plugin-shell",
+ "thiserror 1.0.69",
+ "tokio",
+ "windows",
+ "windows-sys 0.52.0",
+]
+
+[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3275,33 +3302,6 @@ name = "raw-window-handle"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20675572f6f24e9e76ef639bc5552774ed45f1c30e2951e1e99c59888861c539"
-
-[[package]]
-name = "re-fast"
-version = "1.0.65"
-dependencies = [
- "base64 0.21.7",
- "chrono",
- "futures-util",
- "notify",
- "pinyin",
- "png",
- "regex",
- "reqwest 0.11.27",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-opener",
- "tauri-plugin-shell",
- "thiserror 1.0.69",
- "tokio",
- "windows",
- "windows-sys 0.52.0",
-]
 
 [[package]]
 name = "redox_syscall"

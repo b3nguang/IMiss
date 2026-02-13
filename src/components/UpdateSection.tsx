@@ -99,7 +99,7 @@ export function UpdateSection({ currentVersion }: UpdateSectionProps) {
   const handleDownload = async () => {
     if (!updateInfo?.download_url) {
       // 如果没有直接下载链接，打开发布页面
-      await tauriApi.openUrl(updateInfo?.release_url || "https://github.com/Xieweikang123/ReFast/releases");
+      await tauriApi.openUrl(updateInfo?.release_url || "https://github.com/b3nguang/ReFast/releases");
       return;
     }
 
@@ -161,12 +161,12 @@ export function UpdateSection({ currentVersion }: UpdateSectionProps) {
     if (updateInfo?.download_url) {
       await tauriApi.openUrl(updateInfo.download_url);
     } else {
-      await tauriApi.openUrl(updateInfo?.release_url || "https://github.com/Xieweikang123/ReFast/releases");
+      await tauriApi.openUrl(updateInfo?.release_url || "https://github.com/b3nguang/ReFast/releases");
     }
   };
 
   const handleOpenReleasePage = async () => {
-    await tauriApi.openUrl(updateInfo?.release_url || "https://github.com/Xieweikang123/ReFast/releases");
+    await tauriApi.openUrl(updateInfo?.release_url || "https://github.com/b3nguang/ReFast/releases");
   };
 
   const handleIgnoreVersion = () => {

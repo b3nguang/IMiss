@@ -5,8 +5,8 @@
   <p>类似 utools，让你快速启动应用、搜索文件、管理备忘录</p>
   <p>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
-    <a href="https://github.com/Xieweikang123/ReFast/releases"><img src="https://img.shields.io/github/v/release/Xieweikang123/ReFast" alt="Release"></a>
-    <a href="https://github.com/Xieweikang123/ReFast"><img src="https://img.shields.io/github/stars/Xieweikang123/ReFast?style=social" alt="Stars"></a>
+    <a href="https://github.com/b3nguang/ReFast/releases"><img src="https://img.shields.io/github/v/release/b3nguang/ReFast" alt="Release"></a>
+    <a href="https://github.com/b3nguang/ReFast"><img src="https://img.shields.io/github/stars/b3nguang/ReFast?style=social" alt="Stars"></a>
   </p>
 </div>
 
@@ -27,11 +27,11 @@
 
 ## 下载
 
-从 [Releases](https://github.com/Xieweikang123/ReFast/releases) 页面下载最新版本的安装包。
+从 [Releases](https://github.com/b3nguang/ReFast/releases) 页面下载最新版本的安装包。
 
 ## 使用文档
 
-[📚 使用文档 (Wiki)](https://github.com/Xieweikang123/ReFast/wiki)
+[📚 使用文档 (Wiki)](https://github.com/b3nguang/ReFast/wiki)
 
 
 ## 技术栈
@@ -322,8 +322,8 @@ npm run build:tauri
 
 ## 相关链接
 
-- [GitHub 仓库](https://github.com/Xieweikang123/ReFast)
-- [问题反馈](https://github.com/Xieweikang123/ReFast/issues)
+- [GitHub 仓库](https://github.com/b3nguang/ReFast)
+- [问题反馈](https://github.com/b3nguang/ReFast/issues)
 - [Tauri 官网](https://tauri.app/)
 
 

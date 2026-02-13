@@ -641,7 +641,7 @@ export function AboutSettingsPage({}: AboutSettingsProps) {
 
   const handleOpenGitHub = async () => {
     try {
-      await tauriApi.openUrl("https://github.com/Xieweikang123/ReFast");
+      await tauriApi.openUrl("https://github.com/b3nguang/ReFast");
     } catch (error) {
       console.error("Failed to open GitHub:", error);
       alert("打开 GitHub 页面失败");
@@ -650,7 +650,7 @@ export function AboutSettingsPage({}: AboutSettingsProps) {
 
   const handleContactAuthor = async () => {
     try {
-      await tauriApi.openUrl("https://github.com/Xieweikang123/ReFast?tab=readme-ov-file#%E4%BD%9C%E8%80%85%E5%BE%AE%E4%BF%A1");
+      await tauriApi.openUrl("https://github.com/b3nguang/ReFast?tab=readme-ov-file#%E4%BD%9C%E8%80%85%E5%BE%AE%E4%BF%A1");
     } catch (error) {
       console.error("Failed to open contact page:", error);
       alert("打开联系页面失败");
